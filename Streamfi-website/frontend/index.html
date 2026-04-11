@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>StreamFi Movie DApp</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 1.5rem; background: #050816; color: #e5e7eb; }
+      h1, h2 { color: #f9fafb; }
+      .layout { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; align-items: flex-start; }
+      .card { background: rgba(15,23,42,0.9); border-radius: 1rem; padding: 1rem 1.25rem; border: 1px solid rgba(148,163,184,0.3); box-shadow: 0 18px 45px rgba(15,23,42,0.8); }
+      .card h2 { margin-top: 0; font-size: 1.1rem; margin-bottom: 0.5rem; }
+      label { display: block; font-size: 0.8rem; margin-top: 0.5rem; margin-bottom: 0.15rem; color: #9ca3af; }
+      input { width: 100%; padding: 0.45rem 0.55rem; border-radius: 0.6rem; border: 1px solid rgba(148,163,184,0.4); background: rgba(15,23,42,0.8); color: #e5e7eb; font-size: 0.85rem; }
+      input:focus { outline: 1px solid #6366f1; border-color: #6366f1; box-shadow: 0 0 0 1px rgba(99,102,241,0.4); }
+      button { margin-top: 0.6rem; padding: 0.45rem 0.9rem; border-radius: 999px; border: none; cursor: pointer; font-size: 0.85rem; font-weight: 500; background: linear-gradient(135deg, #4f46e5, #06b6d4); color: white; box-shadow: 0 10px 25px rgba(15,23,42,0.7); }
+      button:hover { filter: brightness(1.05); }
+      button:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+      .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+      .badge { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.18rem 0.5rem; border-radius: 999px; font-size: 0.7rem; background: rgba(15,118,110,0.2); color: #6ee7b7; border: 1px solid rgba(34,197,94,0.4); }
+      .badge.red { background: rgba(127,29,29,0.2); color: #fecaca; border-color: rgba(248,113,113,0.5); }
+      .small { font-size: 0.75rem; color: #9ca3af; }
+      #log { margin-top: 1rem; max-height: 260px; overflow-y: auto; font-size: 0.78rem; padding: 0.75rem; border-radius: 0.75rem; background: rgba(15,23,42,0.8); border: 1px solid rgba(148,163,184,0.3); }
+      .log-line { margin-bottom: 0.25rem; }
+      .log-line span.label { color: #9ca3af; }
+      hr { border: none; border-top: 1px solid rgba(31,41,55,0.8); margin: 1rem 0; }
+    </style>
+  </head>
+  <body>
+    <header class="row" style="justify-content: space-between; margin-bottom: 1.25rem;">
+      <div>
+        <h1 style="margin: 0 0 0.3rem; font-size: 1.4rem;">StreamFi Movies</h1>
+        <div class="small">HashKey Testnet · StreamFiPayment demo</div>
+      </div>
+      <div class="row">
+        <div class="badge" id="wallet-status">Wallet: disconnected</div>
+        <button id="connect-btn">Connect Wallet</button>
+      </div>
+    </header>
+
+    <section class="card" style="margin-bottom: 1.5rem;">
+      <h2>Contract</h2>
+      <label>StreamFiPayment address (HashKey testnet)</label>
+      <input id="contract-address" placeholder="0x..." />
+      <button id="set-contract-btn">Use address</button>
+      <div class="small" id="contract-hint" style="margin-top: 0.4rem;">Paste the address printed by scripts/deploy.ts</div>
+    </section>
+
+    <main class="layout">
+      <section class="card">
+        <h2>1. Register Movie</h2>
+        <label>Price per second (wei)</label>
+        <input id="reg-price" type="text" placeholder="e.g. 100000000000000" />
+        <button id="reg-btn">Register movie</button>
+        <div class="small">Creator = connected wallet. Movie IDs increment from 1.</div>
+      </section>
+
+      <section class="card">
+        <h2>2. Invest in Movie</h2>
+        <label>Movie ID</label>
+        <input id="inv-movie-id" type="number" min="1" />
+        <label>Amount (ETH)</label>
+        <input id="inv-amount" type="text" placeholder="e.g. 0.1" />
+        <button id="inv-btn">Invest</button>
+        <div class="small">You receive investor shares equal to the ETH you send (in wei).</div>
+      </section>
+
+      <section class="card">
+        <h2>3. One-off Payment</h2>
+        <label>Movie ID</label>
+        <input id="pay-movie-id" type="number" min="1" />
+        <label>Amount (ETH)</label>
+        <input id="pay-amount" type="text" placeholder="e.g. 0.01" />
+        <button id="pay-btn">Pay once</button>
+        <div class="small">Split: 60% creator · 30% investors · 10% platform.</div>
+      </section>
+
+      <section class="card">
+        <h2>4. Streaming (HSP style)</h2>
+        <label>Movie ID</label>
+        <input id="stream-movie-id" type="number" min="1" />
+        <div class="row">
+          <button id="start-stream-btn">Start stream</button>
+          <button id="stop-stream-btn">Stop stream</button>
+        </div>
+        <hr />
+        <label>Settle seconds since last checkpoint</label>
+        <input id="settle-seconds" type="number" min="1" placeholder="e.g. 30" />
+        <button id="settle-stream-btn">Settle now</button>
+        <div class="small">Frontend reads pricePerSecond, computes amount, and sends exact wei.</div>
+      </section>
+
+      <section class="card">
+        <h2>5. Investor Withdraw</h2>
+        <label>Movie ID</label>
+        <input id="wd-movie-id" type="number" min="1" />
+        <button id="wd-btn">Withdraw investor funds</button>
+        <div class="small">Withdraws your accumulated investor balance for that movie.</div>
+      </section>
+    </main>
+
+    <section id="log" aria-label="Activity log"></section>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
