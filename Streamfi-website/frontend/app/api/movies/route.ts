@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "../../../lib/prisma";
+import { getMongoDb } from "../../../lib/mongodb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,13 +10,9 @@ export async function GET() {
       return NextResponse.json([], { status: 200 });
     }
 
-    // Use raw query to handle documents that may have null onChainId
-    // (legacy movies uploaded before on-chain registration was required)
-    const movies = await prisma.movie.findRaw({
-      options: { sort: { createdAt: -1 } },
-    });
-
-    const moviesArray = Array.isArray(movies) ? (movies as unknown[]) : [];
+    const db = await getMongoDb();
+    const movies = await db.collection("Movie").find({}).sort({ createdAt: -1 }).toArray();
+    const moviesArray = Array.isArray(movies) ? movies : [];
 
     // Normalize the raw MongoDB documents into a clean shape
     const normalized = moviesArray.map((m: any) => ({
@@ -63,23 +59,45 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    const movie = await prisma.movie.create({
-      data: {
-        onChainId: Number(onChainId),
-        title,
-        description,
-        genre,
-        duration: Number(duration),
-        pricePerSecond: Number(pricePerSecond),
-        creatorWallet,
-        videoUrl,
-        thumbnailUrl,
-      },
-    });
+    const onChainIdNum = Number(onChainId);
+    const durationNum = Number(duration);
+    const ppsNum = Number(pricePerSecond);
+
+    if (!Number.isFinite(onChainIdNum) || onChainIdNum <= 0) {
+      return NextResponse.json({ error: "Invalid onChainId" }, { status: 400 });
+    }
+    if (!Number.isFinite(durationNum) || durationNum <= 0) {
+      return NextResponse.json({ error: "Invalid duration" }, { status: 400 });
+    }
+    if (!Number.isFinite(ppsNum) || ppsNum <= 0) {
+      return NextResponse.json({ error: "Invalid pricePerSecond" }, { status: 400 });
+    }
+
+    const db = await getMongoDb();
+    const createdAt = new Date();
+    const doc = {
+      onChainId: onChainIdNum,
+      title: String(title),
+      description: String(description),
+      genre: String(genre),
+      duration: durationNum,
+      pricePerSecond: ppsNum,
+      creatorWallet: String(creatorWallet),
+      videoUrl: String(videoUrl),
+      thumbnailUrl: String(thumbnailUrl),
+      createdAt,
+    };
+
+    const inserted = await db.collection("Movie").insertOne(doc);
+
+    const movie = {
+      id: inserted.insertedId.toString(),
+      ...doc,
+    };
 
     return NextResponse.json(movie, { status: 201 });
   } catch (err) {
     console.error("POST /api/movies error", err);
-    return NextResponse.json({ error: "Failed to create movie" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to create movie", details: (err as Error)?.message || "Unknown error" }, { status: 500 });
   }
 }
