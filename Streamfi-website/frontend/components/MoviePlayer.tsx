@@ -28,6 +28,7 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
   const [settleStatus, setSettleStatus] = useState<string | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const settlingRef = useRef(false);
+  const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   async function autoSettlePendingDue() {
     if (settlingRef.current || !address) return;
@@ -64,8 +65,27 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
       markBillPaid(address, onChainId, due);
       setTotalDue(0);
       setSettleStatus("Pending amount paid");
+
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
     } catch (err: any) {
-      setSettleStatus(err?.reason || err?.message || "Auto-settlement failed");
+      const code = err?.code;
+      const msg = err?.reason || err?.message || "Auto-settlement failed";
+
+      if (code === 4001 || code === "ACTION_REJECTED" || String(msg).toLowerCase().includes("rejected")) {
+        setSettleStatus("Payment canceled. We will ask again shortly until due is cleared.");
+      } else {
+        setSettleStatus(msg);
+      }
+
+      if (!retryTimerRef.current) {
+        retryTimerRef.current = setTimeout(() => {
+          retryTimerRef.current = null;
+          void autoSettlePendingDue();
+        }, 7000);
+      }
     } finally {
       settlingRef.current = false;
     }
@@ -124,7 +144,31 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
   }, [totalDue]);
 
   useEffect(() => {
+    if (!address || totalDue <= 0) return;
+
+    // Keep re-asking while due remains unpaid (covers manual reject/cancel loophole).
+    const interval = setInterval(() => {
+      void autoSettlePendingDue();
+    }, 12000);
+
+    const onFocus = () => {
+      void autoSettlePendingDue();
+    };
+
+    window.addEventListener("focus", onFocus);
+
     return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [address, totalDue, onChainId]);
+
+  useEffect(() => {
+    return () => {
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
       void autoSettlePendingDue();
     };
   }, [address, onChainId]);
