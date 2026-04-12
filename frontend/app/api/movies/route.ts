@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ObjectId } from "mongodb";
 import { getMongoDb } from "../../../lib/mongodb";
 
 export const runtime = "nodejs";
@@ -53,6 +54,7 @@ export async function POST(req: NextRequest) {
       creatorWallet,
       videoUrl,
       thumbnailUrl,
+      sourceUpcomingId,
     } = body;
 
     if (!onChainId || !title || !description || !genre || !duration || !pricePerSecond || !creatorWallet || !videoUrl || !thumbnailUrl) {
@@ -89,6 +91,52 @@ export async function POST(req: NextRequest) {
     };
 
     const inserted = await db.collection("Movie").insertOne(doc);
+
+    // If this movie is published from an upcoming entry, migrate investor ledger snapshot.
+    if (sourceUpcomingId && ObjectId.isValid(String(sourceUpcomingId))) {
+      const upcomingObjectId = new ObjectId(String(sourceUpcomingId));
+      const upcomingInvestors = await db
+        .collection("UpcomingInvestment")
+        .find({ upcomingId: upcomingObjectId })
+        .toArray();
+
+      const totalInvestedHsk = upcomingInvestors.reduce((sum: number, inv: any) => {
+        return sum + Number(inv?.investedHsk || 0);
+      }, 0);
+
+      const investorLedger = upcomingInvestors.map((inv: any) => {
+        const investedHsk = Number(inv?.investedHsk || 0);
+        const share = totalInvestedHsk > 0 ? investedHsk / totalInvestedHsk : 0;
+        return {
+          investorWallet: String(inv?.investorWallet || ""),
+          investedHsk,
+          share,
+        };
+      });
+
+      await db.collection("Movie").updateOne(
+        { _id: inserted.insertedId },
+        {
+          $set: {
+            sourceUpcomingId: String(sourceUpcomingId),
+            upcomingInvestmentTotalHsk: totalInvestedHsk,
+            upcomingInvestors: investorLedger,
+          },
+        }
+      );
+
+      await db.collection("UpcomingMovie").updateOne(
+        { _id: upcomingObjectId },
+        {
+          $set: {
+            status: "published",
+            linkedMovieId: inserted.insertedId.toString(),
+            publishedOnChainId: onChainIdNum,
+            publishedAt: new Date(),
+          },
+        }
+      );
+    }
 
     const movie = {
       id: inserted.insertedId.toString(),

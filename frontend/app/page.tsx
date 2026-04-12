@@ -56,6 +56,11 @@ type UpcomingMovie = {
   thumbnailUrl: string;
   targetAmountHsk: number;
   onChainId: number | null;
+  status: "upcoming" | "published";
+  linkedMovieId: string | null;
+  publishedOnChainId: number | null;
+  pledgedTotalHsk: number;
+  investorCount: number;
   createdAt: string;
 };
 
@@ -643,21 +648,41 @@ export default function HomePage() {
   }
 
   async function handleInvestUpcoming(movie: UpcomingMovie, amount: string) {
-    if (!movie.onChainId || movie.onChainId <= 0) {
-      throw new Error("This upcoming movie has no on-chain ID yet. Creator must set it first.");
+    if (!account) {
+      throw new Error("Connect wallet first");
+    }
+    if (movie.status === "published" || movie.linkedMovieId) {
+      throw new Error("This movie is already published. Invest from published movies.");
     }
     try {
       setInvestLoading(true);
-      const c = await getContract();
-      const id = BigInt(movie.onChainId);
-      await assertMovieExists(c, id);
       if (!amount) throw new Error("Enter investment amount");
-      const value = parseEther(amount);
-      pushLog(`Investing ${amount} ETH in upcoming "${movie.title}" (#${id.toString()})...`);
-      const tx = await c.invest(id, { value });
-      pushLog(`Invest tx: ${tx.hash}`);
-      await tx.wait();
-      pushLog(`✅ Investment in upcoming "${movie.title}" confirmed!`);
+      const amountHsk = Number(amount);
+      if (!Number.isFinite(amountHsk) || amountHsk <= 0) {
+        throw new Error("Enter a valid investment amount");
+      }
+
+      pushLog(`Recording upcoming investment ${amountHsk} HSK in "${movie.title}"...`);
+      const res = await fetch("/api/upcoming-investments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          upcomingId: movie.id,
+          investorWallet: account,
+          amountHsk,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to record upcoming investment");
+      }
+
+      const data = await res.json().catch(() => ({}));
+      await loadUpcomingMovies();
+      pushLog(
+        `✅ Upcoming investment recorded. Total pledged: ${Number(data?.totalInvestedHsk || 0).toFixed(4)} HSK by ${Number(data?.investorCount || 0)} investor(s).`
+      );
     } catch (e: any) {
       const msg = e.reason || e.message || String(e);
       pushLog(`❌ Invest error: ${msg}`);
@@ -1658,7 +1683,9 @@ export default function HomePage() {
                   <p className="small">No upcoming movies available for investment yet.</p>
                 ) : (
                   <div className="invest-grid">
-                    {upcomingMovies.map((m) => (
+                    {upcomingMovies
+                      .filter((m) => m.status !== "published" && !m.linkedMovieId)
+                      .map((m) => (
                       <UpcomingInvestCard
                         key={m.id}
                         movie={m}
@@ -1906,18 +1933,17 @@ function UpcomingInvestCard({
 }) {
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState<string | null>(null);
-
-  const canInvestOnChain = Boolean(movie.onChainId && movie.onChainId > 0);
+  const isPublished = movie.status === "published" || Boolean(movie.linkedMovieId);
 
   const handleClick = async () => {
-    if (!canInvestOnChain) {
-      setStatus("❌ On-chain ID not set yet");
+    if (isPublished) {
+      setStatus("❌ This upcoming movie is already published");
       return;
     }
     setStatus("⏳ Sending...");
     try {
       await onInvest(movie, amount);
-      setStatus("✅ Investment sent!");
+      setStatus("✅ Investment recorded!");
       setAmount("");
     } catch (e: any) {
       setStatus(`❌ ${e?.message || "Failed"}`);
@@ -1940,7 +1966,8 @@ function UpcomingInvestCard({
       <div className="small" style={{ marginTop: "0.2rem" }}>{movie.description}</div>
       <div style={{ marginTop: "0.6rem", fontSize: "0.72rem", color: "#9ca3af" }}>
         <div>Target: <span style={{ color: "#fbbf24" }}>{movie.targetAmountHsk || 0} HSK</span></div>
-        <div>On-chain ID: <span style={{ color: canInvestOnChain ? "#4ade80" : "#f87171" }}>{movie.onChainId ?? "not set"}</span></div>
+        <div>Reserved On-chain ID: <span style={{ color: "#4ade80" }}>{movie.onChainId ?? "pending"}</span></div>
+        <div>Pledged: <span style={{ color: "#60a5fa" }}>{Number(movie.pledgedTotalHsk || 0).toFixed(4)} HSK</span> by {movie.investorCount || 0} investor(s)</div>
       </div>
 
       <div style={{ marginTop: "0.6rem" }}>
@@ -1951,18 +1978,18 @@ function UpcomingInvestCard({
           placeholder="e.g. 0.1"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
-          disabled={!canInvestOnChain}
+          disabled={isPublished}
         />
       </div>
       <Button
-        variant={canInvestOnChain ? "default" : "outline"}
+        variant={isPublished ? "outline" : "default"}
         size="default"
         type="button"
         style={{ width: "100%", marginTop: "0.5rem" }}
-        disabled={loading || !amount || !canInvestOnChain}
+        disabled={loading || !amount || isPublished}
         onClick={handleClick}
       >
-        {canInvestOnChain ? (loading ? "Processing..." : "Invest in Upcoming") : "Waiting for On-chain ID"}
+        {isPublished ? "Already Published" : loading ? "Processing..." : "Invest in Upcoming"}
       </Button>
       {status && (
         <p

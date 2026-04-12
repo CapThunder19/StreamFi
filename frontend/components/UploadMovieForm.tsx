@@ -22,7 +22,7 @@ export default function UploadMovieForm({ creatorWallet, onSuccess, pushLog }: P
   const [duration, setDuration] = useState("");
   const [pricePerSecond, setPricePerSecond] = useState("");
   const [payoutWallet, setPayoutWallet] = useState("");
-  const [upcomingIdToRemove, setUpcomingIdToRemove] = useState("");
+  const [upcomingIdToConvert, setUpcomingIdToConvert] = useState("");
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
   const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null);
@@ -281,6 +281,7 @@ export default function UploadMovieForm({ creatorWallet, onSuccess, pushLog }: P
           creatorWallet: payoutWallet,
           videoUrl: uploadedMediaUrl,
           thumbnailUrl: uploadedThumbnailUrl,
+          sourceUpcomingId: upcomingIdToConvert.trim() || undefined,
         }),
       });
 
@@ -289,20 +290,8 @@ export default function UploadMovieForm({ creatorWallet, onSuccess, pushLog }: P
         throw new Error(data.error || "Failed to save movie metadata");
       }
 
-      // Optional: remove matching upcoming movie entry once this movie is fully uploaded.
-      if (upcomingIdToRemove.trim()) {
-        setStep("Removing upcoming entry...");
-        const removeRes = await fetchWithTimeout(
-          `/api/upcoming-movies?id=${encodeURIComponent(upcomingIdToRemove.trim())}`,
-          { method: "DELETE" }
-        );
-
-        if (removeRes.ok) {
-          log(`✅ Removed upcoming movie ID: ${upcomingIdToRemove.trim()}`);
-        } else {
-          const removeData = await removeRes.json().catch(() => ({}));
-          log(`⚠️ Could not remove upcoming ID ${upcomingIdToRemove.trim()}: ${removeData.error || "Unknown error"}`);
-        }
+      if (upcomingIdToConvert.trim()) {
+        log(`✅ Linked upcoming ID ${upcomingIdToConvert.trim()} to this uploaded movie.`);
       }
 
       setCurrentStep(5);
@@ -317,7 +306,7 @@ export default function UploadMovieForm({ creatorWallet, onSuccess, pushLog }: P
       setDuration("");
       setPricePerSecond("");
       setPayoutWallet(creatorWallet || "");
-      setUpcomingIdToRemove("");
+      setUpcomingIdToConvert("");
       setMediaFile(null);
       setThumbnailFile(null);
       setThumbnailPreview(null);
@@ -433,11 +422,11 @@ export default function UploadMovieForm({ creatorWallet, onSuccess, pushLog }: P
         />
       </div>
       <div className="space-y-1">
-        <label className="label">Upcoming ID to remove after upload (optional)</label>
+        <label className="label">Upcoming ID to convert into this upload (optional)</label>
         <input
           className="input"
-          value={upcomingIdToRemove}
-          onChange={(e) => setUpcomingIdToRemove(e.target.value)}
+          value={upcomingIdToConvert}
+          onChange={(e) => setUpcomingIdToConvert(e.target.value)}
           placeholder="e.g. 1712412345-ab12cd"
           disabled={loading}
         />

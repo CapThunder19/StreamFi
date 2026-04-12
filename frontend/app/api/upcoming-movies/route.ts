@@ -18,10 +18,15 @@ type UpcomingMovie = {
   thumbnailUrl: string;
   targetAmountHsk: number;
   onChainId: number | null;
+  status: "upcoming" | "published";
+  linkedMovieId: string | null;
+  publishedOnChainId: number | null;
+  pledgedTotalHsk: number;
+  investorCount: number;
   createdAt: string;
 };
 
-function normalizeUpcoming(doc: any): UpcomingMovie {
+function normalizeUpcoming(doc: any, stats?: { pledgedTotalHsk?: number; investorCount?: number }): UpcomingMovie {
   return {
     id: doc?._id?.toString?.() || String(doc?._id || ""),
     title: String(doc?.title || "Untitled"),
@@ -34,6 +39,14 @@ function normalizeUpcoming(doc: any): UpcomingMovie {
       doc?.onChainId && Number(doc.onChainId) > 0
         ? Number(doc.onChainId)
         : null,
+    status: doc?.status === "published" ? "published" : "upcoming",
+    linkedMovieId: doc?.linkedMovieId ? String(doc.linkedMovieId) : null,
+    publishedOnChainId:
+      doc?.publishedOnChainId && Number(doc.publishedOnChainId) > 0
+        ? Number(doc.publishedOnChainId)
+        : null,
+    pledgedTotalHsk: Number(stats?.pledgedTotalHsk || 0),
+    investorCount: Number(stats?.investorCount || 0),
     createdAt: new Date(doc?.createdAt || Date.now()).toISOString(),
   };
 }
@@ -82,7 +95,32 @@ export async function GET() {
   try {
     const db = await getMongoDb();
     const docs = await db.collection("UpcomingMovie").find({}).sort({ createdAt: -1 }).toArray();
-    return NextResponse.json(docs.map(normalizeUpcoming));
+
+    const statsRows = await db
+      .collection("UpcomingInvestment")
+      .aggregate([
+        {
+          $group: {
+            _id: "$upcomingId",
+            pledgedTotalHsk: { $sum: "$investedHsk" },
+            investorCount: { $sum: 1 },
+          },
+        },
+      ])
+      .toArray();
+
+    const statsMap = new Map<string, { pledgedTotalHsk: number; investorCount: number }>();
+    for (const row of statsRows) {
+      const key = row?._id?.toString?.() || String(row?._id || "");
+      statsMap.set(key, {
+        pledgedTotalHsk: Number(row?.pledgedTotalHsk || 0),
+        investorCount: Number(row?.investorCount || 0),
+      });
+    }
+
+    return NextResponse.json(
+      docs.map((doc) => normalizeUpcoming(doc, statsMap.get(doc?._id?.toString?.() || String(doc?._id || ""))))
+    );
   } catch (err) {
     console.error("GET /api/upcoming-movies error", err);
     return NextResponse.json({ error: "Failed to fetch upcoming movies" }, { status: 500 });
@@ -115,6 +153,9 @@ export async function POST(req: NextRequest) {
       thumbnailUrl: String(thumbnailUrl || ""),
       targetAmountHsk: Number(targetAmountHsk || 0),
       onChainId: assignedOnChainId,
+      status: "upcoming",
+      linkedMovieId: null,
+      publishedOnChainId: null,
       createdAt: new Date(),
     };
 
