@@ -177,7 +177,6 @@ export default function HomePage() {
   const [upDescription, setUpDescription] = useState<string>("");
   const [upGenre, setUpGenre] = useState<string>("");
   const [upTargetHsk, setUpTargetHsk] = useState<string>("");
-  const [upOnChainId, setUpOnChainId] = useState<string>("");
   const [upThumbnailFile, setUpThumbnailFile] = useState<File | null>(null);
   const [upThumbnailPreview, setUpThumbnailPreview] = useState<string | null>(null);
   const [upPayoutWallet, setUpPayoutWallet] = useState<string>("");
@@ -715,7 +714,6 @@ export default function HomePage() {
           creatorWallet: upPayoutWallet,
           thumbnailUrl: uploadedUpcomingThumbnailUrl,
           targetAmountHsk: Number(upTargetHsk || 0),
-          onChainId: Number(upOnChainId || 0),
         }),
       });
 
@@ -724,13 +722,18 @@ export default function HomePage() {
         throw new Error(data.error || "Failed to create upcoming movie");
       }
 
+      const createdUpcoming = await res.json().catch(() => null);
+
       await loadUpcomingMovies();
-      setUpcomingStatus("✅ Upcoming movie created");
+      setUpcomingStatus(
+        createdUpcoming?.onChainId
+          ? `✅ Upcoming movie created with on-chain ID #${createdUpcoming.onChainId}`
+          : "✅ Upcoming movie created"
+      );
       setUpTitle("");
       setUpDescription("");
       setUpGenre("");
       setUpTargetHsk("");
-      setUpOnChainId("");
       setUpThumbnailFile(null);
       setUpThumbnailPreview(null);
       setUpPayoutWallet(account || "");
@@ -1382,8 +1385,9 @@ export default function HomePage() {
             <label className="label">Target (HSK)</label>
             <input className="input" type="number" min={0} step="0.0001" value={upTargetHsk} onChange={(e) => setUpTargetHsk(e.target.value)} placeholder="100" />
 
-            <label className="label">On-chain Movie ID (optional)</label>
-            <input className="input" type="number" min={1} value={upOnChainId} onChange={(e) => setUpOnChainId(e.target.value)} placeholder="Set after registration" />
+            <div className="small" style={{ marginTop: "0.2rem", marginBottom: "0.6rem" }}>
+              On-chain Movie ID is auto-assigned to the first unused ID.
+            </div>
 
             <label className="label">Upcoming Thumbnail (optional)</label>
             <input

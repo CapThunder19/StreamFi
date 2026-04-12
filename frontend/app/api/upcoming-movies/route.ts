@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
+import { Contract, JsonRpcProvider } from "ethers";
 import { getMongoDb } from "../../../lib/mongodb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const HASHKEY_TESTNET_RPC_URL = "https://testnet.hsk.xyz";
+const MOVIE_COUNT_ABI = ["function movieCount() view returns (uint256)"];
 
 type UpcomingMovie = {
   id: string;
@@ -34,6 +38,46 @@ function normalizeUpcoming(doc: any): UpcomingMovie {
   };
 }
 
+async function getNextUnusedOnChainId(db: any): Promise<number> {
+  const contractAddress = process.env.NEXT_PUBLIC_STREAMFI_CONTRACT_ADDRESS;
+  if (!contractAddress) {
+    throw new Error("Contract address not configured for on-chain ID assignment");
+  }
+
+  const provider = new JsonRpcProvider(HASHKEY_TESTNET_RPC_URL);
+  const contract = new Contract(contractAddress, MOVIE_COUNT_ABI, provider);
+  const movieCountRaw = await contract.movieCount();
+  const movieCount = Number(movieCountRaw);
+
+  const [movieIds, upcomingIds] = await Promise.all([
+    db
+      .collection("Movie")
+      .find({ onChainId: { $type: "number", $gt: 0 } }, { projection: { onChainId: 1 } })
+      .toArray(),
+    db
+      .collection("UpcomingMovie")
+      .find({ onChainId: { $type: "number", $gt: 0 } }, { projection: { onChainId: 1 } })
+      .toArray(),
+  ]);
+
+  const used = new Set<number>();
+
+  for (const doc of movieIds) {
+    const id = Number(doc?.onChainId || 0);
+    if (Number.isInteger(id) && id > 0) used.add(id);
+  }
+
+  for (const doc of upcomingIds) {
+    const id = Number(doc?.onChainId || 0);
+    if (Number.isInteger(id) && id > 0) used.add(id);
+  }
+
+  // IDs up to movieCount are already used on-chain.
+  let candidate = Math.max(1, movieCount + 1);
+  while (used.has(candidate)) candidate += 1;
+  return candidate;
+}
+
 export async function GET() {
   try {
     const db = await getMongoDb();
@@ -55,7 +99,6 @@ export async function POST(req: NextRequest) {
       creatorWallet,
       thumbnailUrl,
       targetAmountHsk,
-      onChainId,
     } = body;
 
     if (!title || !description || !genre || !creatorWallet) {
@@ -63,6 +106,7 @@ export async function POST(req: NextRequest) {
     }
 
     const db = await getMongoDb();
+    const assignedOnChainId = await getNextUnusedOnChainId(db);
     const payload = {
       title: String(title),
       description: String(description),
@@ -70,7 +114,7 @@ export async function POST(req: NextRequest) {
       creatorWallet: String(creatorWallet),
       thumbnailUrl: String(thumbnailUrl || ""),
       targetAmountHsk: Number(targetAmountHsk || 0),
-      onChainId: onChainId && Number(onChainId) > 0 ? Number(onChainId) : null,
+      onChainId: assignedOnChainId,
       createdAt: new Date(),
     };
 
