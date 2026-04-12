@@ -23,10 +23,20 @@ type UpcomingMovie = {
   publishedOnChainId: number | null;
   pledgedTotalHsk: number;
   investorCount: number;
+  onChainReady: boolean;
   createdAt: string;
 };
 
-function normalizeUpcoming(doc: any, stats?: { pledgedTotalHsk?: number; investorCount?: number }): UpcomingMovie {
+function normalizeUpcoming(
+  doc: any,
+  stats?: { pledgedTotalHsk?: number; investorCount?: number },
+  chainMovieCount = 0
+): UpcomingMovie {
+  const onChainId =
+    doc?.onChainId && Number(doc.onChainId) > 0
+      ? Number(doc.onChainId)
+      : null;
+
   return {
     id: doc?._id?.toString?.() || String(doc?._id || ""),
     title: String(doc?.title || "Untitled"),
@@ -35,10 +45,7 @@ function normalizeUpcoming(doc: any, stats?: { pledgedTotalHsk?: number; investo
     creatorWallet: String(doc?.creatorWallet || ""),
     thumbnailUrl: String(doc?.thumbnailUrl || ""),
     targetAmountHsk: Number(doc?.targetAmountHsk || 0),
-    onChainId:
-      doc?.onChainId && Number(doc.onChainId) > 0
-        ? Number(doc.onChainId)
-        : null,
+    onChainId,
     status: doc?.status === "published" ? "published" : "upcoming",
     linkedMovieId: doc?.linkedMovieId ? String(doc.linkedMovieId) : null,
     publishedOnChainId:
@@ -47,8 +54,23 @@ function normalizeUpcoming(doc: any, stats?: { pledgedTotalHsk?: number; investo
         : null,
     pledgedTotalHsk: Number(stats?.pledgedTotalHsk || 0),
     investorCount: Number(stats?.investorCount || 0),
+    onChainReady: Boolean(onChainId && onChainId <= chainMovieCount),
     createdAt: new Date(doc?.createdAt || Date.now()).toISOString(),
   };
+}
+
+async function getChainMovieCount(): Promise<number> {
+  const contractAddress = process.env.NEXT_PUBLIC_STREAMFI_CONTRACT_ADDRESS;
+  if (!contractAddress) return 0;
+
+  try {
+    const provider = new JsonRpcProvider(HASHKEY_TESTNET_RPC_URL);
+    const contract = new Contract(contractAddress, MOVIE_COUNT_ABI, provider);
+    const count = await contract.movieCount();
+    return Number(count);
+  } catch {
+    return 0;
+  }
 }
 
 async function getNextUnusedOnChainId(db: any): Promise<number> {
@@ -95,6 +117,7 @@ export async function GET() {
   try {
     const db = await getMongoDb();
     const docs = await db.collection("UpcomingMovie").find({}).sort({ createdAt: -1 }).toArray();
+    const chainMovieCount = await getChainMovieCount();
 
     const statsRows = await db
       .collection("UpcomingInvestment")
@@ -119,7 +142,13 @@ export async function GET() {
     }
 
     return NextResponse.json(
-      docs.map((doc) => normalizeUpcoming(doc, statsMap.get(doc?._id?.toString?.() || String(doc?._id || ""))))
+      docs.map((doc) =>
+        normalizeUpcoming(
+          doc,
+          statsMap.get(doc?._id?.toString?.() || String(doc?._id || "")),
+          chainMovieCount
+        )
+      )
     );
   } catch (err) {
     console.error("GET /api/upcoming-movies error", err);
@@ -190,5 +219,53 @@ export async function DELETE(req: NextRequest) {
   } catch (err) {
     console.error("DELETE /api/upcoming-movies error", err);
     return NextResponse.json({ error: "Failed to delete upcoming movie" }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const id = req.nextUrl.searchParams.get("id");
+    if (!id) {
+      return NextResponse.json({ error: "Missing id" }, { status: 400 });
+    }
+    if (!ObjectId.isValid(id)) {
+      return NextResponse.json({ error: "Invalid upcoming movie id" }, { status: 400 });
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const onChainIdNum = Number(body?.onChainId || 0);
+    if (!Number.isInteger(onChainIdNum) || onChainIdNum <= 0) {
+      return NextResponse.json({ error: "Valid onChainId is required" }, { status: 400 });
+    }
+
+    const db = await getMongoDb();
+    const objectId = new ObjectId(id);
+    const existing = await db.collection("UpcomingMovie").findOne({ _id: objectId });
+    if (!existing) {
+      return NextResponse.json({ error: "Upcoming movie not found" }, { status: 404 });
+    }
+    if (existing?.status === "published") {
+      return NextResponse.json({ error: "Upcoming movie already published" }, { status: 400 });
+    }
+
+    await db.collection("UpcomingMovie").updateOne(
+      { _id: objectId },
+      {
+        $set: {
+          onChainId: onChainIdNum,
+          onChainPublishedAt: new Date(),
+        },
+      }
+    );
+
+    const updated = await db.collection("UpcomingMovie").findOne({ _id: objectId });
+    const chainMovieCount = await getChainMovieCount();
+
+    return NextResponse.json(
+      normalizeUpcoming(updated, { pledgedTotalHsk: 0, investorCount: 0 }, chainMovieCount)
+    );
+  } catch (err) {
+    console.error("PATCH /api/upcoming-movies error", err);
+    return NextResponse.json({ error: "Failed to update upcoming movie" }, { status: 500 });
   }
 }

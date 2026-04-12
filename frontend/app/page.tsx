@@ -61,6 +61,7 @@ type UpcomingMovie = {
   publishedOnChainId: number | null;
   pledgedTotalHsk: number;
   investorCount: number;
+  onChainReady: boolean;
   createdAt: string;
 };
 
@@ -187,6 +188,7 @@ export default function HomePage() {
   const [upPayoutWallet, setUpPayoutWallet] = useState<string>("");
   const [removeUpcomingId, setRemoveUpcomingId] = useState<string>("");
   const [upcomingLoading, setUpcomingLoading] = useState<boolean>(false);
+  const [publishingUpcomingId, setPublishingUpcomingId] = useState<string | null>(null);
   const [upcomingStatus, setUpcomingStatus] = useState<string | null>(null);
   const [viewerBills, setViewerBills] = useState<ViewerBill[]>([]);
   const [creatorAnalyticsLoading, setCreatorAnalyticsLoading] = useState<boolean>(false);
@@ -654,8 +656,8 @@ export default function HomePage() {
     if (movie.status === "published" || movie.linkedMovieId) {
       throw new Error("This movie is already published. Invest from published movies.");
     }
-    if (!movie.onChainId || movie.onChainId <= 0) {
-      throw new Error("On-chain ID is not ready yet for this upcoming movie.");
+    if (!movie.onChainReady || !movie.onChainId || movie.onChainId <= 0) {
+      throw new Error("This upcoming movie is not live on-chain yet. Ask creator to publish on-chain first.");
     }
     try {
       setInvestLoading(true);
@@ -807,6 +809,64 @@ export default function HomePage() {
       setUpcomingStatus(`❌ ${msg}`);
     } finally {
       setUpcomingLoading(false);
+    }
+  }
+
+  async function handlePublishUpcomingOnChain(movie: UpcomingMovie) {
+    if (!account) {
+      setUpcomingStatus("❌ Connect wallet first");
+      return;
+    }
+    if (movie.status === "published" || movie.linkedMovieId) {
+      setUpcomingStatus("❌ This upcoming movie is already published");
+      return;
+    }
+    if (movie.onChainReady) {
+      setUpcomingStatus(`✅ Upcoming \"${movie.title}\" is already live on-chain (#${movie.onChainId})`);
+      return;
+    }
+
+    const priceInput = window.prompt(`Set price per second in HSK for \"${movie.title}\"`, "0.0001");
+    if (priceInput === null) return;
+
+    const priceNum = Number(priceInput);
+    if (!Number.isFinite(priceNum) || priceNum <= 0) {
+      setUpcomingStatus("❌ Enter a valid price per second");
+      return;
+    }
+
+    const payoutWallet = isAddress(movie.creatorWallet) ? movie.creatorWallet : account;
+
+    try {
+      setPublishingUpcomingId(movie.id);
+      setUpcomingStatus("⏳ Publishing upcoming movie on-chain...");
+
+      const c = await getContract();
+      const priceWei = parseEther(String(priceNum));
+      const tx = await c.registerMovie(priceWei, payoutWallet);
+      pushLog(`Publish upcoming tx: ${tx.hash}`);
+      await tx.wait();
+
+      const newOnChainId = Number(await c.movieCount());
+
+      const patchRes = await fetch(`/api/upcoming-movies?id=${encodeURIComponent(movie.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ onChainId: newOnChainId }),
+      });
+
+      if (!patchRes.ok) {
+        const data = await patchRes.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to update upcoming movie after publish");
+      }
+
+      await loadUpcomingMovies();
+      setUpcomingStatus(`✅ Published on-chain with movie ID #${newOnChainId}. Investors can now pay on-chain.`);
+    } catch (e: any) {
+      const msg = e.reason || e.message || String(e);
+      setUpcomingStatus(`❌ ${msg}`);
+    } finally {
+      setPublishingUpcomingId(null);
     }
   }
 
@@ -1485,7 +1545,7 @@ export default function HomePage() {
                 .filter((m) => m.creatorWallet?.toLowerCase() === account?.toLowerCase())
                 .slice(0, 5)
                 .map((m) => (
-                  <div key={m.id} className="small" style={{ color: "#d1d5db" }}>
+                  <div key={m.id} className="small" style={{ color: "#d1d5db", border: "1px solid rgba(148,163,184,0.2)", borderRadius: "0.5rem", padding: "0.45rem" }}>
                     {m.thumbnailUrl ? (
                       <img
                         src={m.thumbnailUrl}
@@ -1494,6 +1554,20 @@ export default function HomePage() {
                       />
                     ) : null}
                     ID: {m.id} · {m.title} · on-chain: {m.onChainId ?? "not set"} · payout: {m.creatorWallet.slice(0, 6)}...{m.creatorWallet.slice(-4)}
+                    <div style={{ marginTop: "0.35rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                      <span style={{ color: m.onChainReady ? "#4ade80" : "#fbbf24" }}>
+                        {m.onChainReady ? "Live on-chain" : "Reserved only"}
+                      </span>
+                      <Button
+                        variant={m.onChainReady ? "outline" : "default"}
+                        size="sm"
+                        type="button"
+                        disabled={Boolean(publishingUpcomingId) || m.onChainReady}
+                        onClick={() => handlePublishUpcomingOnChain(m)}
+                      >
+                        {publishingUpcomingId === m.id ? "Publishing..." : m.onChainReady ? "Published" : "Publish On-chain"}
+                      </Button>
+                    </div>
                   </div>
                 ))}
             </div>
@@ -1947,7 +2021,7 @@ function UpcomingInvestCard({
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const isPublished = movie.status === "published" || Boolean(movie.linkedMovieId);
-  const canInvestOnChain = Boolean(movie.onChainId && movie.onChainId > 0);
+  const canInvestOnChain = Boolean(movie.onChainReady && movie.onChainId && movie.onChainId > 0);
 
   const handleClick = async () => {
     if (isPublished) {
