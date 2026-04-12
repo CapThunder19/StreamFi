@@ -5,7 +5,7 @@ import ReactPlayer from "react-player";
 import { useAccount } from "wagmi";
 import { BrowserProvider, Contract, parseEther } from "ethers";
 import abiJson from "../abi/StreamFiPayment.json";
-import { dueAmountHsk, getViewerBills, markBillPaid, upsertWatchTick } from "../lib/viewerBilling";
+import { ViewerBill, dueAmountHsk, getViewerBills, markBillPaid, upsertWatchTick } from "../lib/viewerBilling";
 
 const STREAMFI_ABI = abiJson.abi;
 
@@ -27,21 +27,20 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
   const [totalDue, setTotalDue] = useState(0);
   const [settleStatus, setSettleStatus] = useState<string | null>(null);
   const [isSettling, setIsSettling] = useState(false);
+  const [blockedBill, setBlockedBill] = useState<ViewerBill | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const settlingRef = useRef(false);
-  const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const paymentRequired = totalDue > 0 || isSettling;
+  const paymentRequired = Boolean(blockedBill) || isSettling;
 
-  async function autoSettlePendingDue() {
-    if (settlingRef.current || !address) return;
+  async function payBillNow(bill: ViewerBill) {
+    if (settlingRef.current || !address) return false;
 
-    const bills = getViewerBills(address);
-    const movieBill = bills.find((b) => b.onChainId === onChainId);
-    const due = movieBill ? dueAmountHsk(movieBill) : 0;
-
+    const due = dueAmountHsk(bill);
     if (!due || due <= 0) {
-      setTotalDue(0);
-      return;
+      if (blockedBill && blockedBill.onChainId === bill.onChainId) {
+        setBlockedBill(null);
+      }
+      return true;
     }
 
     try {
@@ -50,7 +49,7 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
       setSettleStatus("Settling pending amount...");
 
       const anyWin = window as any;
-      if (!anyWin.ethereum) throw new Error("Wallet not found for auto-settlement");
+      if (!anyWin.ethereum) throw new Error("Wallet not found for settlement");
 
       const provider = new BrowserProvider(anyWin.ethereum);
       const signer = await provider.getSigner();
@@ -62,53 +61,68 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
       const amountText = due.toFixed(6);
       const value = parseEther(amountText);
 
-      const tx = await contract.pay(BigInt(onChainId), { value });
+      const tx = await contract.pay(BigInt(bill.onChainId), { value });
       await tx.wait();
 
-      markBillPaid(address, onChainId, due);
-      setTotalDue(0);
+      markBillPaid(address, bill.onChainId, due);
       setSettleStatus("Pending amount paid");
 
-      if (retryTimerRef.current) {
-        clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = null;
+      if (bill.onChainId === onChainId) {
+        setTotalDue(0);
       }
+
+      if (blockedBill && blockedBill.onChainId === bill.onChainId) {
+        setBlockedBill(null);
+      }
+
+      return true;
     } catch (err: any) {
       const code = err?.code;
-      const msg = err?.reason || err?.message || "Auto-settlement failed";
+      const msg = err?.reason || err?.message || "Settlement failed";
 
       if (code === 4001 || code === "ACTION_REJECTED" || String(msg).toLowerCase().includes("rejected")) {
-        setSettleStatus("Payment canceled. We will ask again shortly until due is cleared.");
+        setSettleStatus("Payment canceled. This movie remains locked until it is paid.");
       } else {
         setSettleStatus(msg);
       }
-
-      if (!retryTimerRef.current) {
-        retryTimerRef.current = setTimeout(() => {
-          retryTimerRef.current = null;
-          void autoSettlePendingDue();
-        }, 7000);
-      }
+      return false;
     } finally {
       settlingRef.current = false;
       setIsSettling(false);
     }
   }
 
-  useEffect(() => {
-    if (paymentRequired) {
-      setPlaying(false);
+  async function settleCurrentMovieDueIfAny() {
+    if (!address) return false;
+    const bills = getViewerBills(address);
+    const currentBill = bills.find((b: ViewerBill) => b.onChainId === onChainId);
+    if (!currentBill || dueAmountHsk(currentBill) <= 0) {
+      setTotalDue(0);
+      return true;
     }
-  }, [paymentRequired]);
+    return payBillNow(currentBill);
+  }
 
   useEffect(() => {
     if (!address) {
       setTotalDue(0);
+      setBlockedBill(null);
       return;
     }
     const bills = getViewerBills(address);
-    const movieBill = bills.find((b) => b.onChainId === onChainId);
+    const movieBill = bills.find((b: ViewerBill) => b.onChainId === onChainId);
     setTotalDue(movieBill ? dueAmountHsk(movieBill) : 0);
+
+    const previousUnpaid = bills.find(
+      (b: ViewerBill) => b.onChainId !== onChainId && dueAmountHsk(b) > 0
+    );
+    if (previousUnpaid) {
+      setBlockedBill(previousUnpaid);
+      setPlaying(false);
+      setSettleStatus("Previous movie payment pending. Pay it to continue.");
+    } else {
+      setBlockedBill(null);
+    }
   }, [address, onChainId]);
 
   useEffect(() => {
@@ -124,7 +138,7 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
             { movieId, onChainId, title, pricePerSecond },
             1
           );
-          const movieBill = bills.find((b) => b.onChainId === onChainId);
+          const movieBill = bills.find((b: ViewerBill) => b.onChainId === onChainId);
           setTotalDue(movieBill ? dueAmountHsk(movieBill) : 0);
         }, 1000);
       }
@@ -143,7 +157,7 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       if (totalDue > 0) {
-        void autoSettlePendingDue();
+        void settleCurrentMovieDueIfAny();
         event.preventDefault();
         event.returnValue = "";
       }
@@ -154,32 +168,8 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
   }, [totalDue]);
 
   useEffect(() => {
-    if (!address || totalDue <= 0) return;
-
-    // Keep re-asking while due remains unpaid (covers manual reject/cancel loophole).
-    const interval = setInterval(() => {
-      void autoSettlePendingDue();
-    }, 12000);
-
-    const onFocus = () => {
-      void autoSettlePendingDue();
-    };
-
-    window.addEventListener("focus", onFocus);
-
     return () => {
-      clearInterval(interval);
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [address, totalDue, onChainId]);
-
-  useEffect(() => {
-    return () => {
-      if (retryTimerRef.current) {
-        clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = null;
-      }
-      void autoSettlePendingDue();
+      void settleCurrentMovieDueIfAny();
     };
   }, [address, onChainId]);
 
@@ -188,7 +178,7 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
       <div className="absolute top-4 right-4 flex items-center gap-2 text-xs text-emerald-300 bg-emerald-900/40 border border-emerald-500/60 px-3 py-1 rounded-full">
         <span>💰 {pricePerSecond.toFixed(4)} HSK/sec</span>
         <span>• Session: {sessionAmount.toFixed(4)} HSK</span>
-        <span>• Total Due: {totalDue.toFixed(4)} HSK</span>
+        <span>• Pending Current: {totalDue.toFixed(4)} HSK</span>
         {settleStatus && <span>• {settleStatus}</span>}
       </div>
       <div className="w-full max-w-5xl px-4">
@@ -208,19 +198,27 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
               }}
             >
               <div style={{ textAlign: "center", color: "#fff", maxWidth: "28rem", padding: "1rem" }}>
-                <div style={{ fontWeight: 700, marginBottom: "0.45rem" }}>Payment Required</div>
+                <div style={{ fontWeight: 700, marginBottom: "0.45rem" }}>Previous Payment Required</div>
                 <div style={{ fontSize: "0.85rem", color: "#cbd5e1", marginBottom: "0.85rem" }}>
-                  This movie cannot play until pending due is paid.
+                  {blockedBill
+                    ? `Pay pending due for "${blockedBill.title}" before playing another movie.`
+                    : "This movie is locked until pending payment is cleared."}
                 </div>
                 <button
                   type="button"
                   onClick={() => {
-                    void autoSettlePendingDue();
+                    if (blockedBill) {
+                      void payBillNow(blockedBill);
+                    }
                   }}
-                  disabled={isSettling}
+                  disabled={isSettling || !blockedBill}
                   className="px-3 py-1 rounded-full bg-orange-500 hover:bg-orange-400 transition text-xs font-semibold disabled:opacity-60"
                 >
-                  {isSettling ? "Paying..." : `Pay Now (${totalDue.toFixed(6)} HSK)`}
+                  {isSettling
+                    ? "Paying..."
+                    : blockedBill
+                    ? `Pay Now (${dueAmountHsk(blockedBill).toFixed(6)} HSK)`
+                    : "Pay Now"}
                 </button>
               </div>
             </div>
@@ -236,7 +234,9 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
             onPlay={() => {
               if (paymentRequired) {
                 setPlaying(false);
-                void autoSettlePendingDue();
+                if (blockedBill) {
+                  void payBillNow(blockedBill);
+                }
                 return;
               }
               setPlaying(true);
@@ -244,7 +244,7 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
             onPause={() => setPlaying(false)}
             onEnded={() => {
               setPlaying(false);
-              void autoSettlePendingDue();
+              void settleCurrentMovieDueIfAny();
             }}
           />
         </div>
@@ -254,7 +254,9 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
             type="button"
             onClick={() => {
               if (paymentRequired) {
-                void autoSettlePendingDue();
+                if (blockedBill) {
+                  void payBillNow(blockedBill);
+                }
                 return;
               }
               setPlaying((p) => !p);

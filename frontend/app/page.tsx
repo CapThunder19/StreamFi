@@ -53,6 +53,7 @@ type UpcomingMovie = {
   description: string;
   genre: string;
   creatorWallet: string;
+  thumbnailUrl: string;
   targetAmountHsk: number;
   onChainId: number | null;
   createdAt: string;
@@ -177,6 +178,8 @@ export default function HomePage() {
   const [upGenre, setUpGenre] = useState<string>("");
   const [upTargetHsk, setUpTargetHsk] = useState<string>("");
   const [upOnChainId, setUpOnChainId] = useState<string>("");
+  const [upThumbnailFile, setUpThumbnailFile] = useState<File | null>(null);
+  const [upThumbnailPreview, setUpThumbnailPreview] = useState<string | null>(null);
   const [upPayoutWallet, setUpPayoutWallet] = useState<string>("");
   const [removeUpcomingId, setRemoveUpcomingId] = useState<string>("");
   const [upcomingLoading, setUpcomingLoading] = useState<boolean>(false);
@@ -683,6 +686,25 @@ export default function HomePage() {
       setUpcomingLoading(true);
       setUpcomingStatus("⏳ Creating upcoming movie...");
 
+      let uploadedUpcomingThumbnailUrl = "";
+      if (upThumbnailFile) {
+        const uploadData = new FormData();
+        uploadData.append("file", upThumbnailFile);
+
+        const thumbRes = await fetch("/api/upload-thumbnail", {
+          method: "POST",
+          body: uploadData,
+        });
+
+        if (!thumbRes.ok) {
+          const data = await thumbRes.json().catch(() => ({}));
+          throw new Error(data.error || "Failed to upload upcoming thumbnail");
+        }
+
+        const thumbData = await thumbRes.json();
+        uploadedUpcomingThumbnailUrl = String(thumbData?.url || "");
+      }
+
       const res = await fetch("/api/upcoming-movies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -691,6 +713,7 @@ export default function HomePage() {
           description: upDescription,
           genre: upGenre,
           creatorWallet: upPayoutWallet,
+          thumbnailUrl: uploadedUpcomingThumbnailUrl,
           targetAmountHsk: Number(upTargetHsk || 0),
           onChainId: Number(upOnChainId || 0),
         }),
@@ -708,6 +731,8 @@ export default function HomePage() {
       setUpGenre("");
       setUpTargetHsk("");
       setUpOnChainId("");
+      setUpThumbnailFile(null);
+      setUpThumbnailPreview(null);
       setUpPayoutWallet(account || "");
     } catch (e: any) {
       const msg = e.message || String(e);
@@ -1360,6 +1385,29 @@ export default function HomePage() {
             <label className="label">On-chain Movie ID (optional)</label>
             <input className="input" type="number" min={1} value={upOnChainId} onChange={(e) => setUpOnChainId(e.target.value)} placeholder="Set after registration" />
 
+            <label className="label">Upcoming Thumbnail (optional)</label>
+            <input
+              className="input"
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                setUpThumbnailFile(file);
+                if (file) {
+                  setUpThumbnailPreview(URL.createObjectURL(file));
+                } else {
+                  setUpThumbnailPreview(null);
+                }
+              }}
+            />
+            {upThumbnailPreview && (
+              <img
+                src={upThumbnailPreview}
+                alt="Upcoming thumbnail preview"
+                style={{ marginTop: "0.45rem", borderRadius: "0.5rem", maxHeight: "7rem", objectFit: "cover" }}
+              />
+            )}
+
             <label className="label">Payout Wallet Address</label>
             <input className="input" value={upPayoutWallet} onChange={(e) => setUpPayoutWallet(e.target.value)} placeholder="0x..." />
 
@@ -1396,6 +1444,13 @@ export default function HomePage() {
                 .slice(0, 5)
                 .map((m) => (
                   <div key={m.id} className="small" style={{ color: "#d1d5db" }}>
+                    {m.thumbnailUrl ? (
+                      <img
+                        src={m.thumbnailUrl}
+                        alt={m.title}
+                        style={{ width: "100%", maxHeight: "7rem", objectFit: "cover", borderRadius: "0.45rem", marginBottom: "0.35rem" }}
+                      />
+                    ) : null}
                     ID: {m.id} · {m.title} · on-chain: {m.onChainId ?? "not set"} · payout: {m.creatorWallet.slice(0, 6)}...{m.creatorWallet.slice(-4)}
                   </div>
                 ))}
@@ -1867,6 +1922,13 @@ function UpcomingInvestCard({
 
   return (
     <Card className="card">
+      {movie.thumbnailUrl ? (
+        <img
+          src={movie.thumbnailUrl}
+          alt={movie.title}
+          style={{ width: "100%", height: "9rem", objectFit: "cover", borderRadius: "0.6rem", marginBottom: "0.55rem" }}
+        />
+      ) : null}
       <div style={{ fontSize: "0.9rem", fontWeight: 600 }}>{movie.title}</div>
       <div className="small" style={{ marginTop: "0.2rem" }}>
         {movie.genre} · Upcoming by {movie.creatorWallet.slice(0, 6)}...{movie.creatorWallet.slice(-4)}
