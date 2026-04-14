@@ -34,6 +34,7 @@ export default async function WatchPage({ params }: WatchPageProps) {
       videoUrl={String(movie.videoUrl || "")}
       title={String(movie.title || "Untitled")}
       pricePerSecond={Number(movie.pricePerSecond || 0)}
+      creatorWallet={String(movie.creatorWallet || "")}
     />
   );
 }

@@ -15,9 +15,10 @@ type Props = {
   videoUrl: string;
   title: string;
   pricePerSecond: number;
+  creatorWallet?: string;
 };
 
-export default function MoviePlayer({ movieId, onChainId, videoUrl, title, pricePerSecond }: Props) {
+export default function MoviePlayer({ movieId, onChainId, videoUrl, title, pricePerSecond, creatorWallet }: Props) {
   const { address } = useAccount();
   const [playing, setPlaying] = useState(true);
   const [volume, setVolume] = useState(0.9);
@@ -81,7 +82,7 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
       const msg = err?.reason || err?.message || "Settlement failed";
 
       if (code === 4001 || code === "ACTION_REJECTED" || String(msg).toLowerCase().includes("rejected")) {
-        setSettleStatus("Payment canceled. This movie remains locked until it is paid.");
+        setSettleStatus("Payment canceled.");
       } else {
         setSettleStatus(msg);
       }
@@ -113,13 +114,14 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
     const movieBill = bills.find((b: ViewerBill) => b.onChainId === onChainId);
     setTotalDue(movieBill ? dueAmountHsk(movieBill) : 0);
 
+    // If there is an unpaid bill for a different movie, block playback
     const previousUnpaid = bills.find(
       (b: ViewerBill) => b.onChainId !== onChainId && dueAmountHsk(b) > 0
     );
     if (previousUnpaid) {
       setBlockedBill(previousUnpaid);
       setPlaying(false);
-      setSettleStatus("Previous movie payment pending. Pay it to continue.");
+      setSettleStatus("Payment is pending. Please settle to continue.");
     } else {
       setBlockedBill(null);
     }
@@ -130,6 +132,7 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
       if (!intervalRef.current) {
         intervalRef.current = setInterval(() => {
           if (!address) return;
+
           setSessionSeconds((prev) => prev + 1);
           setSessionAmount((prev) => prev + pricePerSecond);
 
@@ -173,124 +176,290 @@ export default function MoviePlayer({ movieId, onChainId, videoUrl, title, price
     };
   }, [address, onChainId]);
 
+  const creatorLabel = creatorWallet
+    ? `${creatorWallet.slice(0, 6)}...${creatorWallet.slice(-4)}`
+    : "";
+
   return (
-    <div className="fixed inset-0 bg-black flex flex-col items-center justify-center">
-      <div className="absolute top-4 right-4 flex items-center gap-2 text-xs text-emerald-300 bg-emerald-900/40 border border-emerald-500/60 px-3 py-1 rounded-full">
-        <span>💰 {pricePerSecond.toFixed(4)} HSK/sec</span>
-        <span>• Session: {sessionAmount.toFixed(4)} HSK</span>
-        <span>• Pending Current: {totalDue.toFixed(4)} HSK</span>
-        {settleStatus && <span>• {settleStatus}</span>}
-      </div>
-      <div className="w-full max-w-5xl px-4">
-        <div className="mb-2 text-sm text-slate-200">{title}</div>
-        <div className="mb-2 text-xs text-slate-400">Watched this session: {sessionSeconds}s</div>
-        <div className="aspect-video rounded-xl overflow-hidden bg-black shadow-2xl shadow-black/80">
-          {paymentRequired && (
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                zIndex: 10,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                background: "rgba(0, 0, 0, 0.72)",
-              }}
-            >
-              <div style={{ textAlign: "center", color: "#fff", maxWidth: "28rem", padding: "1rem" }}>
-                <div style={{ fontWeight: 700, marginBottom: "0.45rem" }}>Previous Payment Required</div>
-                <div style={{ fontSize: "0.85rem", color: "#cbd5e1", marginBottom: "0.85rem" }}>
-                  {blockedBill
-                    ? `Pay pending due for "${blockedBill.title}" before playing another movie.`
-                    : "This movie is locked until pending payment is cleared."}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (blockedBill) {
-                      void payBillNow(blockedBill);
-                    }
-                  }}
-                  disabled={isSettling || !blockedBill}
-                  className="px-3 py-1 rounded-full bg-orange-500 hover:bg-orange-400 transition text-xs font-semibold disabled:opacity-60"
-                >
-                  {isSettling
-                    ? "Paying..."
-                    : blockedBill
-                    ? `Pay Now (${dueAmountHsk(blockedBill).toFixed(6)} HSK)`
-                    : "Pay Now"}
-                </button>
-              </div>
-            </div>
-          )}
-          <ReactPlayer
-            url={videoUrl}
-            playing={playing}
-            controls={!paymentRequired}
-            width="100%"
-            height="100%"
-            volume={volume}
-            playbackRate={playbackRate}
-            onPlay={() => {
-              if (paymentRequired) {
-                setPlaying(false);
-                if (blockedBill) {
-                  void payBillNow(blockedBill);
-                }
-                return;
-              }
-              setPlaying(true);
-            }}
-            onPause={() => setPlaying(false)}
-            onEnded={() => {
-              setPlaying(false);
-              void settleCurrentMovieDueIfAny();
-            }}
-          />
-        </div>
-        <div className="mt-3 flex items-center justify-between text-xs text-slate-300">
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 300,
+        background: "#0a0a0c",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "1.25rem",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          padding: "1rem 1.25rem",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "1rem",
+          background: "linear-gradient(to bottom, rgba(0,0,0,0.65), rgba(0,0,0,0))",
+          backdropFilter: "blur(10px)",
+          WebkitBackdropFilter: "blur(10px)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
           <button
-            className="px-3 py-1 rounded-full bg-slate-800 hover:bg-slate-700 transition"
             type="button"
-            onClick={() => {
-              if (paymentRequired) {
-                if (blockedBill) {
-                  void payBillNow(blockedBill);
-                }
-                return;
-              }
-              setPlaying((p) => !p);
+            onClick={() => window.history.back()}
+            aria-label="Close player"
+            style={{
+              height: 40,
+              width: 40,
+              borderRadius: 999,
+              border: `1px solid ${"rgba(255,255,255,0.12)"}`,
+              background: "rgba(255,255,255,0.06)",
+              color: "#fff",
+              cursor: "pointer",
+              fontWeight: 900,
             }}
           >
-            {playing ? "Pause" : "Play"}
+            ✕
           </button>
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1">
-              <span>Volume</span>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={volume}
-                onChange={(e) => setVolume(Number(e.target.value))}
-              />
-            </label>
-            <label className="flex items-center gap-1">
-              <span>Speed</span>
-              <select
-                className="bg-slate-900 border border-slate-700 rounded px-1 py-0.5"
-                value={playbackRate}
-                onChange={(e) => setPlaybackRate(Number(e.target.value))}
-              >
-                {[0.5, 1, 1.25, 1.5, 2].map((r) => (
-                  <option key={r} value={r}>
-                    {r}x
-                  </option>
-                ))}
-              </select>
-            </label>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 800, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {title}
+            </div>
+            <div style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(255,255,255,0.55)", marginTop: 2 }}>
+              StreamFi Cinema Session
+            </div>
           </div>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "1.25rem",
+            padding: "0.5rem 0.85rem",
+            borderRadius: 999,
+            border: "1px solid rgba(255,255,255,0.10)",
+            background: "rgba(255,255,255,0.05)",
+            color: "#fff",
+            fontSize: 12,
+            fontWeight: 700,
+            flexShrink: 0,
+          }}
+        >
+          {creatorLabel && (
+            <span style={{ opacity: 0.8 }}>
+              Creator: <span style={{ fontFamily: "monospace" }}>{creatorLabel}</span>
+            </span>
+          )}
+          <span style={{ color: "var(--primary)" }}>
+            Price: {Number(pricePerSecond || 0).toFixed(4)} HSK/s
+          </span>
+        </div>
+      </div>
+
+      <div
+        style={{
+          width: "min(1100px, 100%)",
+          aspectRatio: "16 / 9",
+          borderRadius: "1.5rem",
+          overflow: "hidden",
+          background: "#000",
+          border: "1px solid rgba(255,255,255,0.08)",
+          position: "relative",
+        }}
+      >
+        {paymentRequired && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 20,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "rgba(0,0,0,0.85)",
+            }}
+          >
+            <div
+              style={{
+                minWidth: 360,
+                maxWidth: 520,
+                padding: "2.25rem 2.5rem",
+                borderRadius: "1.75rem",
+                background: "#121018",
+                boxShadow: "0 40px 120px rgba(0,0,0,0.85)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                textAlign: "center",
+                color: "#fff",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "1.35rem",
+                  fontWeight: 700,
+                  marginBottom: "0.5rem",
+                }}
+              >
+                Settlement Required
+              </div>
+              <div
+                style={{
+                  fontSize: "0.9rem",
+                  color: "#e5e7eb",
+                  marginBottom: "1.5rem",
+                }}
+              >
+                Payment is pending. Please settle to continue.
+              </div>
+
+              <div
+                style={{
+                  marginBottom: "1rem",
+                  padding: "0.3rem",
+                  borderRadius: 999,
+                  background: "#1f102f",
+                  overflow: "hidden",
+                  border: "1px solid #4c1d95",
+                }}
+              >
+                <div
+                  style={{
+                    height: 40,
+                    borderRadius: 999,
+                    background: isSettling ? "#6d28d9" : "#4c1d95",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#f9fafb",
+                    fontWeight: 700,
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  {isSettling ? "Processing..." : "Settle now"}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  fontSize: "0.85rem",
+                  color: "#a855f7",
+                  fontWeight: 600,
+                  marginBottom: "0.75rem",
+                }}
+              >
+                {settleStatus || "Settling pending amount..."}
+              </div>
+
+              {blockedBill && !isSettling && (
+                <button
+                  type="button"
+                  onClick={() => void payBillNow(blockedBill)}
+                  style={{
+                    marginTop: "0.5rem",
+                    padding: "0.55rem 1.4rem",
+                    borderRadius: 999,
+                    fontSize: "0.8rem",
+                    fontWeight: 600,
+                    color: "#e5e7eb",
+                    background: "#181022",
+                    border: "1px solid #4c1d95",
+                    cursor: "pointer",
+                  }}
+                >
+                  Pay {dueAmountHsk(blockedBill).toFixed(6)} HSK to unlock
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        <ReactPlayer
+          url={videoUrl}
+          playing={playing && !paymentRequired}
+          controls={!paymentRequired}
+          width="100%"
+          height="100%"
+          volume={volume}
+          playbackRate={playbackRate}
+          onPlay={() => {
+            if (paymentRequired) {
+              setPlaying(false);
+              if (blockedBill) {
+                void payBillNow(blockedBill);
+              }
+              return;
+            }
+            setPlaying(true);
+          }}
+          onPause={() => setPlaying(false)}
+          onEnded={() => {
+            setPlaying(false);
+            void settleCurrentMovieDueIfAny();
+          }}
+        />
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          bottom: 16,
+          left: 20,
+          right: 20,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          fontSize: 12,
+          color: "#e5e7eb",
+          opacity: 0.8,
+        }}
+      >
+        <div>
+          <span>
+            Session: {sessionSeconds}s · {sessionAmount.toFixed(4)} HSK
+          </span>
+          <span style={{ marginLeft: 12 }}>
+            Pending current: {totalDue.toFixed(4)} HSK
+          </span>
+          {settleStatus && (
+            <span style={{ marginLeft: 12, color: "#a855f7" }}>{settleStatus}</span>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span>Vol</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={volume}
+              onChange={(e) => setVolume(Number(e.target.value))}
+            />
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span>Speed</span>
+            <select
+              value={playbackRate}
+              onChange={(e) => setPlaybackRate(Number(e.target.value))}
+              style={{
+                background: "#020617",
+                borderRadius: 6,
+                border: "1px solid rgba(148,163,184,0.7)",
+                padding: "2px 6px",
+                color: "#e5e7eb",
+              }}
+            >
+              {[0.5, 1, 1.25, 1.5, 2].map((r) => (
+                <option key={r} value={r}>
+                  {r}x
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </div>
     </div>

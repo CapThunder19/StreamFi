@@ -41,109 +41,110 @@ export default function MovieGrid() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-8 text-sm text-slate-400">
-        <div className="h-5 w-5 mr-2 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
-        Loading movies...
+      <div className="flex items-center justify-center py-12 text-sm text-slate-400">
+        <div className="h-6 w-6 mr-3 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin" />
+        Loading the library...
       </div>
     );
   }
 
   if (error) {
-    return <div className="text-sm text-red-400 py-4">{error}</div>;
+    return <div className="text-sm text-red-500 py-8 text-center">{error}</div>;
   }
 
   if (movies.length === 0) {
-    return <div className="text-sm text-slate-400 py-4">No movies uploaded yet.</div>;
+    return <div className="text-sm text-slate-500 py-12 text-center">No cinematic titles found. Upload one to start.</div>;
   }
 
   return (
     <div className="movie-grid" aria-label="Movies from database">
       {movies.map((m) => (
-        <button
+        <div
           key={m.id}
-          type="button"
-          className="movie-card text-left hover:scale-[1.03] transition-transform"
+          className="movie-card"
           onClick={() => setSelectedMovie(m)}
         >
           <div
             className="movie-poster"
             style={{
-              backgroundImage: m.thumbnailUrl
-                ? `url(${m.thumbnailUrl})`
-                : "linear-gradient(135deg,#4f46e5,#22d3ee)",
+              backgroundImage: `url(${m.thumbnailUrl})`,
             }}
           />
-          <span className="movie-badge">{m.title}</span>
-          <div className="movie-title">{m.genre}</div>
-          <div className="movie-sub">
-            {Math.round(m.duration)} min · ⭐ 4.7
+          <div className="movie-info">
+            <span className="movie-title">{m.genre}</span>
+            <span className="movie-badge">{m.title}</span>
+            <div className="movie-sub">
+              {Math.round(m.duration)} min · 💰 {m.pricePerSecond.toFixed?.(2) ?? m.pricePerSecond} HSK/s
+            </div>
           </div>
-        </button>
+        </div>
       ))}
 
       <AnimatePresence>
         {selectedMovie && (
           <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            className="fixed inset-0 z-[200] flex items-center justify-center p-6"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
             <button
               type="button"
-              className="absolute inset-0 bg-black/70"
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
               aria-label="Close details"
               onClick={() => setSelectedMovie(null)}
             />
 
             <motion.div
-              className="relative w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl"
-              initial={{ opacity: 0, scale: 0.92, y: 30 }}
+              className="relative w-full max-w-4xl overflow-hidden rounded-[2rem] border border-white/10 bg-[#0a0a0a]/90 shadow-2xl backdrop-blur-2xl"
+              initial={{ opacity: 0, scale: 0.95, y: 40 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              transition={{ duration: 0.22 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
             >
               <div
-                className="h-64 w-full bg-cover bg-center"
+                className="h-80 w-full bg-cover bg-center relative"
                 style={{
-                  backgroundImage: selectedMovie.thumbnailUrl
-                    ? `linear-gradient(180deg, rgba(15,23,42,0.25), rgba(15,23,42,0.9)), url(${selectedMovie.thumbnailUrl})`
-                    : "linear-gradient(135deg,#4f46e5,#22d3ee)",
+                  backgroundImage: `linear-gradient(to top, #0a0a0a 0%, transparent 60%), url(${selectedMovie.thumbnailUrl})`,
                 }}
-              />
+              >
+                <button
+                  type="button"
+                  className="absolute top-6 right-6 h-10 w-10 flex items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md border border-white/10 hover:bg-white/10 transition-colors"
+                  onClick={() => setSelectedMovie(null)}
+                >
+                  ✕
+                </button>
+              </div>
 
-              <div className="space-y-3 p-5">
-                <div className="flex items-start justify-between gap-4">
+              <div className="space-y-6 p-10">
+                <div className="flex items-start justify-between gap-6">
                   <div>
-                    <h3 className="text-xl font-semibold text-white">{selectedMovie.title}</h3>
-                    <p className="text-sm text-orange-300">
-                      {selectedMovie.genre} · {Math.round(selectedMovie.duration)} min
-                    </p>
+                    <h3 className="text-3xl font-extrabold text-white mb-2">{selectedMovie.title}</h3>
+                    <div className="flex items-center gap-3">
+                      <span className="tag-pill" style={{ background: "var(--primary)", color: "#000", border: "none" }}>{selectedMovie.genre}</span>
+                      <span className="text-slate-400 font-medium">·</span>
+                      <span className="text-slate-400 font-medium">{Math.round(selectedMovie.duration)} Minutes</span>
+                      <span className="text-slate-400 font-medium">·</span>
+                      <span className="text-[var(--primary)] font-bold">💰 {selectedMovie.pricePerSecond} HSK/s</span>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-300 hover:bg-slate-800"
-                    onClick={() => setSelectedMovie(null)}
-                  >
-                    Close
-                  </button>
                 </div>
 
-                <p className="text-sm leading-6 text-slate-300">{selectedMovie.description}</p>
+                <p className="text-lg leading-relaxed text-slate-300 max-w-2xl">{selectedMovie.description}</p>
 
-                <div className="flex items-center justify-between gap-3 text-xs text-slate-400">
-                  <span>Creator: {selectedMovie.creatorWallet.slice(0, 6)}...{selectedMovie.creatorWallet.slice(-4)}</span>
-                  <span>Price: {selectedMovie.pricePerSecond} HSK/sec</span>
-                </div>
-
-                <div className="pt-2">
+                <div className="flex items-center gap-6 pt-4">
                   <button
                     type="button"
-                    className="rounded-full bg-orange-500 px-5 py-2 text-sm font-medium text-white hover:bg-orange-400"
+                    className="button px-8 py-3 text-lg"
                     onClick={() => router.push(`/watch/${selectedMovie.id}`)}
                   >
-                    Play Movie
+                    Watch Now
                   </button>
+                  <div className="text-sm text-slate-500">
+                    <p>On-chain streaming secured by StreamFi</p>
+                    <p>Creator: {selectedMovie.creatorWallet.slice(0, 10)}...</p>
+                  </div>
                 </div>
               </div>
             </motion.div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BrowserProvider, Contract, isAddress } from "ethers";
 import abiJson from "../abi/StreamFiPayment.json";
 
@@ -31,6 +31,9 @@ export default function UploadMovieForm({ creatorWallet, onSuccess, pushLog }: P
   const [step, setStep] = useState<string>("");
   const [currentStep, setCurrentStep] = useState<number>(0); // 0=idle, 1=registering, 2=uploading media, 3=uploading thumb, 4=saving DB, 5=done
   const [mediaUploadProgress, setMediaUploadProgress] = useState<{ loaded: number; total: number; percent: number } | null>(null);
+
+  const mediaInputRef = useRef<HTMLInputElement | null>(null);
+  const posterInputRef = useRef<HTMLInputElement | null>(null);
 
   const log = (text: string) => {
     if (pushLog) pushLog(text);
@@ -336,82 +339,103 @@ export default function UploadMovieForm({ creatorWallet, onSuccess, pushLog }: P
   ];
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-2 mt-2">
-      {/* Progress indicator */}
+    <form onSubmit={handleSubmit} className="commercial-form">
+      <div className="space-y-2 mb-8">
+        <div className="dashboard-section-title">Upload new title</div>
+        <p style={{ fontSize: "0.9rem", color: "var(--text-dim)" }}>
+          Provide the core details and source assets for this release before it
+          goes live on StreamFi.
+        </p>
+      </div>
+
+      {/* Cinematic Progress indicator */}
       {loading && currentStep > 0 && (
-        <div className="upload-progress">
-          <div className="upload-progress-bar">
+        <div className="upload-progress p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl mb-8">
+          <div className="flex justify-between items-center mb-3">
+            <span className="text-xs font-bold text-[var(--primary)] uppercase tracking-[0.2em]">{stepLabels[currentStep]}</span>
+            <span className="text-[10px] text-slate-500 font-mono">STEP {currentStep} OF 4</span>
+          </div>
+          <div className="upload-progress-bar h-2 rounded-full bg-white/5 overflow-hidden">
             <div
-              className="upload-progress-fill"
+              className="upload-progress-fill h-full bg-[var(--primary)] transition-all duration-700 ease-out"
               style={{ width: `${(Math.min(currentStep, 4) / 4) * 100}%` }}
             />
           </div>
-          <span className="upload-progress-label">{stepLabels[currentStep]}</span>
 
           {currentStep === 2 && mediaFile && (
-            <div style={{ marginTop: "0.35rem" }}>
-              <div style={{ fontSize: "0.72rem", color: "#f8fafc", marginBottom: "0.25rem" }}>
-                {mediaUploadProgress
-                  ? `${mediaUploadProgress.percent}% uploaded (${formatBytes(mediaUploadProgress.loaded)} / ${formatBytes(
-                      mediaUploadProgress.total
-                    )})`
-                  : `0% uploaded (0 B / ${formatBytes(mediaFile.size)})`}
+            <div className="mt-4 p-4 rounded-xl bg-black/40 border border-white/5">
+              <div className="flex justify-between text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-2">
+                <span>Transmitting Media Data</span>
+                <span className="text-[var(--primary)]">{mediaUploadProgress?.percent || 0}%</span>
               </div>
-              <div style={{ fontSize: "0.68rem", color: "#94a3b8" }}>
-                {mediaUploadProgress
-                  ? `Remaining: ${formatBytes(Math.max(mediaUploadProgress.total - mediaUploadProgress.loaded, 0))}`
-                  : `Remaining: ${formatBytes(mediaFile.size)}`}
+              <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                <div
+                  className="h-full bg-[var(--primary)]"
+                  style={{ width: `${mediaUploadProgress?.percent || 0}%` }}
+                />
+              </div>
+              <div className="flex justify-between mt-3 text-[10px] text-slate-500 font-mono">
+                <span>{formatBytes(mediaUploadProgress?.loaded || 0)}</span>
+                <span>TOTAL: {formatBytes(mediaUploadProgress?.total || mediaFile.size)}</span>
               </div>
             </div>
           )}
         </div>
       )}
-      <div className="space-y-1">
-        <label className="label">Title</label>
-        <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} required disabled={loading} />
+
+      <div className="form-group-grid">
+        <div className="space-y-2">
+          <label className="label">Production Title</label>
+          <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} required placeholder="e.g. Interstellar Odyssey" disabled={loading} />
+        </div>
+        <div className="space-y-2">
+          <label className="label">Genre / Category</label>
+          <input className="input" value={genre} onChange={(e) => setGenre(e.target.value)} required placeholder="Sci-Fi, Action..." disabled={loading} />
+        </div>
       </div>
-      <div className="space-y-1">
-        <label className="label">Description</label>
+
+      <div className="space-y-2 mb-6">
+        <label className="label">Cinematic Description</label>
         <textarea
-          className="input"
-          rows={2}
+          className="input min-h-[120px]"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           required
+          placeholder="A brief overview of your masterpiece..."
           disabled={loading}
         />
       </div>
-      <div className="space-y-1">
-        <label className="label">Genre</label>
-        <input className="input" value={genre} onChange={(e) => setGenre(e.target.value)} required disabled={loading} />
+
+      <div className="form-group-grid">
+        <div className="space-y-2">
+          <label className="label">Runtime (minutes)</label>
+          <input
+            className="input"
+            type="number"
+            min={1}
+            value={duration}
+            onChange={(e) => setDuration(e.target.value)}
+            required
+            disabled={loading}
+          />
+        </div>
+        <div className="space-y-2">
+          <label className="label">Rate (HSK per second)</label>
+          <input
+            className="input"
+            type="number"
+            step="0.0001"
+            min={0}
+            value={pricePerSecond}
+            onChange={(e) => setPricePerSecond(e.target.value)}
+            required
+            disabled={loading}
+          />
+        </div>
       </div>
-      <div className="space-y-1">
-        <label className="label">Duration (minutes)</label>
-        <input
-          className="input"
-          type="number"
-          min={1}
-          value={duration}
-          onChange={(e) => setDuration(e.target.value)}
-          required
-          disabled={loading}
-        />
-      </div>
-      <div className="space-y-1">
-        <label className="label">Price per second (HSK)</label>
-        <input
-          className="input"
-          type="number"
-          step="0.0001"
-          min={0}
-          value={pricePerSecond}
-          onChange={(e) => setPricePerSecond(e.target.value)}
-          required
-          disabled={loading}
-        />
-      </div>
-      <div className="space-y-1">
-        <label className="label">Payout Wallet Address (investment + micropayments)</label>
+
+      <div className="space-y-2 mb-8">
+        <label className="label">Settlement Wallet Address</label>
         <input
           className="input"
           value={payoutWallet}
@@ -420,83 +444,181 @@ export default function UploadMovieForm({ creatorWallet, onSuccess, pushLog }: P
           required
           disabled={loading}
         />
+        <p style={{ fontSize: "0.75rem", color: "var(--text-dim)" }}>
+          Royalties and viewer payments for this movie will be routed to this
+          wallet. You can use a different address from your connected wallet
+          if you prefer.
+        </p>
       </div>
-      <div className="space-y-1">
-        <label className="label">Upcoming ID to convert into this upload (optional)</label>
-        <input
-          className="input"
-          value={upcomingIdToConvert}
-          onChange={(e) => setUpcomingIdToConvert(e.target.value)}
-          placeholder="e.g. 1712412345-ab12cd"
-          disabled={loading}
-        />
-      </div>
-      <div className="space-y-1">
-        <label className="label">Movie File (MP4/Video/Audio)</label>
-        <input
-          className="input"
-          type="file"
-          accept="video/*,audio/*,.mp4,.webm,.mov,.m4v,.avi,.mkv,.mp3,.wav,.m4a,.ogg,.flac"
-          onChange={(e) => setMediaFile(e.target.files?.[0] || null)}
-          required
-          disabled={loading}
-        />
-        {mediaFile && (
-          <p className="small" style={{ marginTop: "0.25rem" }}>
-            Selected: {mediaFile.name}
+
+      <div className="form-group-grid" style={{ marginTop: "2.5rem" }}>
+        <div className="space-y-2">
+          <label className="label">Primary Master Source</label>
+          <p style={{ fontSize: "0.8rem", color: "var(--text-dim)", marginBottom: "0.35rem" }}>
+            Highest quality encoded file used for on‑demand streaming.
           </p>
-        )}
-      </div>
-      <div className="space-y-1">
-        <label className="label">Thumbnail Image</label>
-        <input
-          className="input"
-          type="file"
-          accept="image/*"
-          disabled={loading}
-          onChange={(e) => {
-            const file = e.target.files?.[0] || null;
-            setThumbnailFile(file);
-            if (file) {
-              const previewUrl = URL.createObjectURL(file);
-              setThumbnailPreview(previewUrl);
-            } else {
-              setThumbnailPreview(null);
-            }
-          }}
-          required
-        />
-        {thumbnailPreview && (
-          <div style={{ marginTop: "0.5rem" }}>
-            <p className="small" style={{ marginBottom: "0.25rem" }}>
-              Preview:
-            </p>
-            <img
-              src={thumbnailPreview}
-              alt="Thumbnail preview"
-              style={{
-                maxHeight: "8rem",
-                borderRadius: "0.5rem",
-                border: "1px solid rgba(255,255,255,0.08)",
-                objectFit: "cover",
-              }}
+          <div className="relative group">
+            <input
+              ref={mediaInputRef}
+              className="absolute inset-0 z-10"
+              type="file"
+              accept="video/*,audio/*,.mp4,.webm,.mov,.m4v,.avi,.mkv,.mp3,.wav,.m4a,.ogg,.flac"
+              onChange={(e) => setMediaFile(e.target.files?.[0] || null)}
+              required
+              disabled={loading}
+              style={{ opacity: 0, cursor: loading ? "default" : "pointer" }}
             />
+            <div
+              style={{
+                padding: "1.75rem 1.5rem",
+                borderRadius: "1.5rem",
+                border: mediaFile ? "1px solid var(--primary)" : "1px dashed rgba(255,255,255,0.12)",
+                background: mediaFile ? "rgba(91,33,182,0.12)" : "rgba(15,23,42,0.85)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                textAlign: "center",
+                gap: "0.35rem",
+              }}
+              onClick={() => {
+                if (!loading) mediaInputRef.current?.click();
+              }}
+            >
+              {!mediaFile && (
+                <span
+                  style={{
+                    display: "block",
+                    fontSize: "0.8rem",
+                    fontWeight: 600,
+                    color: "#e5e7eb",
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Upload master file
+                </span>
+              )}
+              {mediaFile && (
+                <span
+                  style={{
+                    display: "block",
+                    maxWidth: 220,
+                    fontSize: "0.8rem",
+                    fontWeight: 600,
+                    color: "#e5e7eb",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {mediaFile.name}
+                </span>
+              )}
+            </div>
           </div>
-        )}
+        </div>
+
+        <div className="space-y-2">
+          <label className="label">Cinematic Poster</label>
+          <p style={{ fontSize: "0.8rem", color: "var(--text-dim)", marginBottom: "0.35rem" }}>
+            Vertical artwork shown in carousels and collections.
+          </p>
+          <div className="relative group">
+            <input
+              ref={posterInputRef}
+              className="absolute inset-0 z-10"
+              type="file"
+              accept="image/*"
+              disabled={loading}
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                setThumbnailFile(file);
+                if (file) {
+                  const previewUrl = URL.createObjectURL(file);
+                  setThumbnailPreview(previewUrl);
+                } else {
+                  setThumbnailPreview(null);
+                }
+              }}
+              required
+              style={{ opacity: 0, cursor: loading ? "default" : "pointer" }}
+            />
+            <div
+              style={{
+                padding: "1.75rem 1.5rem",
+                borderRadius: "1.5rem",
+                border: thumbnailFile ? "1px solid var(--primary)" : "1px dashed rgba(255,255,255,0.12)",
+                background: thumbnailFile ? "rgba(91,33,182,0.10)" : "rgba(15,23,42,0.8)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                textAlign: "center",
+                gap: "0.35rem",
+              }}
+              onClick={() => {
+                if (!loading) posterInputRef.current?.click();
+              }}
+            >
+              {thumbnailPreview ? (
+                <img
+                  src={thumbnailPreview}
+                  alt="Poster preview"
+                  style={{ height: 72, width: 48, objectFit: "cover", borderRadius: 8, boxShadow: "0 14px 40px rgba(0,0,0,0.8)" }}
+                />
+              ) : (
+                <>
+                  <span
+                    style={{
+                      fontSize: "0.8rem",
+                      fontWeight: 600,
+                      color: "#e5e7eb",
+                    }}
+                  >
+                    Click to select poster image
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
-      <button className="button" type="submit" disabled={loading} style={{ width: "100%" }}>
-        {loading ? step || "Processing..." : "Register & Upload Movie"}
-      </button>
-      {message && (
-        <p
-          className="small"
+
+      <div className="pt-6">
+        <button
+          className="sf-btn sf-btn-default"
+          type="submit"
+          disabled={loading}
           style={{
-            marginTop: "0.35rem",
-            color: message.startsWith("✅") ? "#4ade80" : message.startsWith("❌") ? "#f87171" : "#6b7280",
+            width: "100%",
+            padding: "1.1rem 1.5rem",
+            fontSize: "0.95rem",
+            fontWeight: 700,
+            textTransform: "none",
+            letterSpacing: "0.06em",
+            justifyContent: "center",
           }}
         >
-          {message}
+          {loading ? step || "Processing Release..." : "Finalize & Publish to Network"}
+        </button>
+        <p style={{ fontSize: "0.8rem", color: "var(--text-dim)", marginTop: "0.5rem", textAlign: "center" }}>
+          On submit we will register the movie on-chain, upload media, and
+          persist metadata in a single guided flow.
         </p>
+      </div>
+
+      {message && (
+        <div
+          className={`mt-6 p-5 rounded-2xl border text-sm font-bold text-center animate-fade-in ${message.startsWith("✅")
+            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+            : message.startsWith("❌")
+              ? 'bg-red-500/10 border-red-500/20 text-red-400'
+              : 'bg-white/5 border-white/10 text-slate-400'
+            }`}
+        >
+          {message}
+        </div>
       )}
     </form>
   );

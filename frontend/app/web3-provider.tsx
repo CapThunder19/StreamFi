@@ -1,6 +1,6 @@
 "use client";
 
-import { getDefaultConfig, RainbowKitProvider, lightTheme } from "@rainbow-me/rainbowkit";
+import { getDefaultConfig, RainbowKitProvider, darkTheme } from "@rainbow-me/rainbowkit";
 import { ChakraProvider, createSystem, defaultConfig } from "@chakra-ui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConfigProvider, theme as antdTheme } from "antd";
@@ -51,17 +51,20 @@ export default function Web3Provider({ children }: { children: React.ReactNode }
           theme={{
             algorithm: antdTheme.darkAlgorithm,
             token: {
-              colorPrimary: "#f97316",
-              borderRadius: 10,
+              colorPrimary: "#00f2ff",
+              borderRadius: 12,
+              colorBgBase: "#050505",
             },
           }}
         >
           <ChakraProvider value={chakraSystem}>
             <RainbowKitProvider
-              theme={lightTheme({
-                accentColor: "#f97316",
-                accentColorForeground: "#ffffff",
-                borderRadius: "medium",
+              theme={darkTheme({
+                accentColor: "#00f2ff",
+                accentColorForeground: "#000000",
+                borderRadius: "large",
+                fontStack: "system",
+                overlayBlur: "large",
               })}
             >
               {children}
