@@ -25,7 +25,7 @@ import abiJson from "../abi/StreamFiPayment.json";
 import UploadMovieForm from "../components/UploadMovieForm";
 import MovieGrid from "../components/MovieGrid";
 import { Button } from "../components/ui/button";
-import { Card } from "../components/ui/card";
+import { InvestCard, UpcomingInvestCard } from "../components/InvestCards";
 import { ViewerBill, getViewerBills } from "../lib/viewerBilling";
 
 const STREAMFI_ABI = abiJson.abi;
@@ -67,7 +67,7 @@ type UpcomingMovie = {
 };
 
 const GENRES = [
-  { name: "Action", color: "#00f2ff" },
+  { name: "Action", color: "#5b21b6" },
   { name: "Sci-Fi", color: "#a855f7" },
   { name: "Drama", color: "#ec4899" },
   { name: "Animation", color: "#22c55e" },
@@ -204,6 +204,31 @@ export default function HomePage() {
     totalSharesWei: string;
   }>>([]);
   const [selectedHomeMovie, setSelectedHomeMovie] = useState<Movie | null>(null);
+  const [creatorRange, setCreatorRange] = useState<"24h" | "7d" | "30d">("24h");
+  const [creatorSeries, setCreatorSeries] = useState<{ buckets: number[]; maxValue: number }>({
+    buckets: [],
+    maxValue: 0,
+  });
+
+  const creatorLinePoints = (() => {
+    const buckets = creatorSeries.buckets;
+    const maxValue = creatorSeries.maxValue;
+    if (buckets.length === 0) return "";
+    if (buckets.length === 1) {
+      const y = maxValue > 0 ? 90 - (buckets[0] / maxValue) * 70 : 90;
+      return `10,${y} 90,${y}`;
+    }
+    const xStep = 80 / Math.max(buckets.length - 1, 1);
+    return buckets
+      .map((value, index) => {
+        const x = 10 + index * xStep;
+        const y = maxValue > 0 ? 90 - (value / maxValue) * 70 : 90;
+        return `${x.toFixed(2)},${y.toFixed(2)}`;
+      })
+      .join(" ");
+  })();
+
+  const creatorAreaPoints = creatorLinePoints ? `0,90 ${creatorLinePoints} 100,90` : "";
 
   // Ref to keep contract address stable
   const contractAddressRef = useRef<string>("");
@@ -459,8 +484,7 @@ export default function HomePage() {
     const movie = await c.movies(id);
     if (!movie?.exists) {
       throw new Error(
-        `Movie #${id.toString()} not found on this contract. ` +
-        "Use the correct on-chain ID or deploy/connect the right contract address."
+        `Movie #${id.toString()} not found on-chain`
       );
     }
   }
@@ -472,19 +496,35 @@ export default function HomePage() {
       setInvestStatus(null);
       const c = await getContract();
       const id = resolveOnChainId(invMovieId);
+      
+      // First verify the movie exists
+      const movie = await c.movies(id);
+      pushLog(`Movie #${id.toString()}: exists=${movie.exists}, creator=${movie.creator}`);
       await assertMovieExists(c, id);
+      
       if (!invAmount || invAmount.trim() === "") throw new Error("Enter amount in ETH/HSK");
       const value = parseEther(invAmount);
       pushLog(`Investing ${invAmount} ETH in movie #${id.toString()}...`);
       setInvestStatus("⏳ Sending transaction...");
-      const tx = await c.invest(id, { value });
-      pushLog(`Invest tx: ${tx.hash}`);
-      setInvestStatus("⏳ Waiting for confirmation...");
-      await tx.wait();
-      pushLog("✅ Investment confirmed!");
-      setInvestStatus("✅ Investment confirmed!");
-      setInvMovieId("");
-      setInvAmount("");
+      
+      try {
+        const tx = await c.invest(id, { value });
+        pushLog(`Invest tx: ${tx.hash}`);
+        setInvestStatus("⏳ Waiting for confirmation...");
+        await tx.wait();
+        pushLog("✅ Investment confirmed!");
+        setInvestStatus("✅ Investment confirmed!");
+        setInvMovieId("");
+        setInvAmount("");
+      } catch (txError: any) {
+        // Enhanced error message for transaction failures
+        if (txError.code === "CALL_EXCEPTION") {
+          const revertReason = txError.reason || "Contract call failed (no reason provided)";
+          const errorMsg = `Transaction failed: ${revertReason}. Movie ID: ${id.toString()}, Value: ${invAmount} ETH, Contract: ${contractAddressRef.current}`;
+          throw new Error(errorMsg);
+        }
+        throw txError;
+      }
     } catch (e: any) {
       const msg = e.reason || e.message || String(e);
       pushLog(`❌ Invest error: ${msg}`);
@@ -501,19 +541,35 @@ export default function HomePage() {
       setPayStatus(null);
       const c = await getContract();
       const id = resolveOnChainId(payMovieId);
+      
+      // First verify the movie exists
+      const movie = await c.movies(id);
+      pushLog(`Movie #${id.toString()}: exists=${movie.exists}, creator=${movie.creator}`);
       await assertMovieExists(c, id);
+      
       if (!payAmount || payAmount.trim() === "") throw new Error("Enter amount in ETH/HSK");
       const value = parseEther(payAmount);
       pushLog(`Paying ${payAmount} ETH for movie #${id.toString()}...`);
       setPayStatus("⏳ Sending transaction...");
-      const tx = await c.pay(id, { value });
-      pushLog(`Pay tx: ${tx.hash}`);
-      setPayStatus("⏳ Waiting for confirmation...");
-      await tx.wait();
-      pushLog("✅ Payment confirmed!");
-      setPayStatus("✅ Payment confirmed!");
-      setPayMovieId("");
-      setPayAmount("");
+      
+      try {
+        const tx = await c.pay(id, { value });
+        pushLog(`Pay tx: ${tx.hash}`);
+        setPayStatus("⏳ Waiting for confirmation...");
+        await tx.wait();
+        pushLog("✅ Payment confirmed!");
+        setPayStatus("✅ Payment confirmed!");
+        setPayMovieId("");
+        setPayAmount("");
+      } catch (txError: any) {
+        // Enhanced error message for transaction failures
+        if (txError.code === "CALL_EXCEPTION") {
+          const revertReason = txError.reason || "Contract call failed (no reason provided)";
+          const errorMsg = `Transaction failed: ${revertReason}. Movie ID: ${id.toString()}, Value: ${payAmount} ETH, Contract: ${contractAddressRef.current}`;
+          throw new Error(errorMsg);
+        }
+        throw txError;
+      }
     } catch (e: any) {
       const msg = e.reason || e.message || String(e);
       pushLog(`❌ Pay error: ${msg}`);
@@ -701,9 +757,16 @@ export default function HomePage() {
         `✅ On-chain investment confirmed and recorded. Total pledged: ${Number(data?.totalInvestedHsk || 0).toFixed(4)} HSK by ${Number(data?.investorCount || 0)} investor(s).`
       );
     } catch (e: any) {
-      const msg = e.reason || e.message || String(e);
-      pushLog(`❌ Invest error: ${msg}`);
-      throw e;
+      let msg = e.reason || e.message || String(e);
+      // Simplify technical errors for display
+      if (msg.includes("missing revert data") || msg.includes("CALL_EXCEPTION")) {
+        msg = "Movie not available for investment right now";
+      }
+      if (msg.length > 100) {
+        msg = msg.substring(0, 100) + "...";
+      }
+      pushLog(`❌ Investment error: ${msg}`);
+      throw new Error(msg);
     } finally {
       setInvestLoading(false);
     }
@@ -845,27 +908,39 @@ export default function HomePage() {
 
       const c = await getContract();
       const priceWei = parseEther(String(priceNum));
-      const tx = await c.registerMovie(priceWei, payoutWallet);
-      pushLog(`Publish upcoming tx: ${tx.hash}`);
-      await tx.wait();
+      pushLog(`Registering movie "${movie.title}" on-chain with price ${priceNum} HSK...`);
+      
+      try {
+        const tx = await c.registerMovie(priceWei, payoutWallet);
+        pushLog(`Publish upcoming tx: ${tx.hash}`);
+        await tx.wait();
 
-      const newOnChainId = Number(await c.movieCount());
+        const newOnChainId = Number(await c.movieCount());
+        pushLog(`Movie registered on-chain with ID #${newOnChainId}`);
 
-      const patchRes = await fetch(`/api/upcoming-movies?id=${encodeURIComponent(movie.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ onChainId: newOnChainId }),
-      });
+        const patchRes = await fetch(`/api/upcoming-movies?id=${encodeURIComponent(movie.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ onChainId: newOnChainId }),
+        });
 
-      if (!patchRes.ok) {
-        const data = await patchRes.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to update upcoming movie after publish");
+        if (!patchRes.ok) {
+          const data = await patchRes.json().catch(() => ({}));
+          throw new Error(data.error || "Failed to update upcoming movie after publish");
+        }
+
+        await loadUpcomingMovies();
+        setUpcomingStatus(`✅ Published on-chain with movie ID #${newOnChainId}. Investors can now pay on-chain.`);
+      } catch (txError: any) {
+        if (txError.code === "CALL_EXCEPTION") {
+          const revertReason = txError.reason || "Contract rejected the call";
+          throw new Error(`Failed to register movie on-chain: ${revertReason}`);
+        }
+        throw txError;
       }
-
-      await loadUpcomingMovies();
-      setUpcomingStatus(`✅ Published on-chain with movie ID #${newOnChainId}. Investors can now pay on-chain.`);
     } catch (e: any) {
       const msg = e.reason || e.message || String(e);
+      pushLog(`❌ Publish error: ${msg}`);
       setUpcomingStatus(`❌ ${msg}`);
     } finally {
       setPublishingUpcomingId(null);
@@ -884,7 +959,7 @@ export default function HomePage() {
     pushLog("Wallet disconnected");
   }
 
-  async function loadCreatorAnalytics() {
+  async function loadCreatorAnalytics(nextRange?: "24h" | "7d" | "30d") {
     if (!account) return;
     try {
       setCreatorAnalyticsLoading(true);
@@ -911,6 +986,101 @@ export default function HomePage() {
       );
 
       setCreatorStats(stats);
+
+      // Build time-series revenue buckets from on-chain PaymentReceived events
+      const runner: any = c.runner as any;
+      const prov = runner?.provider || provider;
+      if (!prov) {
+        setCreatorSeries({ buckets: [], maxValue: 0 });
+        return;
+      }
+
+      // Use ethers.js queryFilter to pull recent PaymentReceived logs.
+      // Restrict the block range to avoid full-chain eth_getLogs timeouts.
+      const latestBlock = await prov.getBlockNumber();
+      const maxLookbackBlocks = 200_000; // adjustable safety window
+      const fromBlock = latestBlock > maxLookbackBlocks ? latestBlock - maxLookbackBlocks : 0;
+
+      let logs: any[] = [];
+      try {
+        logs = await c.queryFilter(c.filters.PaymentReceived(), fromBlock, latestBlock);
+      } catch (err: any) {
+        pushLog(`❌ Analytics logs error: ${err?.message || String(err)}`);
+        logs = [];
+      }
+
+      const movieIds = new Set(myMovies.map((m) => Number(m.onChainId || 0)));
+
+      let bucketCount = 24;
+      let bucketSeconds = 3600; // 1 hour
+      const range = nextRange || creatorRange;
+      if (range === "7d") {
+        bucketCount = 7;
+        bucketSeconds = 86400; // 1 day
+      } else if (range === "30d") {
+        bucketCount = 30;
+        bucketSeconds = 86400; // 1 day
+      }
+
+      const totalWindowSeconds = bucketCount * bucketSeconds;
+      const nowSec = Math.floor(Date.now() / 1000);
+      const fromTs = nowSec - totalWindowSeconds;
+
+      const buckets = new Array(bucketCount).fill(0);
+      const blockTimestampCache = new Map<string, number>();
+
+      for (const log of logs) {
+        let blockTs: number | undefined;
+        const blockKey = log.blockNumber.toString();
+        if (blockTimestampCache.has(blockKey)) {
+          blockTs = blockTimestampCache.get(blockKey);
+        } else {
+          const block = await prov.getBlock(log.blockNumber);
+          blockTs = Number(block?.timestamp || 0);
+          blockTimestampCache.set(blockKey, blockTs);
+        }
+
+        if (!blockTs || blockTs < fromTs) continue;
+
+        const anyLog: any = log as any;
+        const movieIdValue = Number(anyLog.args?.movieId ?? anyLog.args?.[0] ?? 0);
+        if (!movieIds.has(movieIdValue)) continue;
+
+        const amountWei = anyLog.args?.amount ?? anyLog.args?.[2] ?? 0;
+        const amountHsk = Number(amountWei) / 1e18;
+
+        const offset = blockTs - fromTs;
+        const rawIndex = Math.floor(offset / bucketSeconds);
+        if (rawIndex < 0) continue;
+        const idx = rawIndex >= bucketCount ? bucketCount - 1 : rawIndex;
+        buckets[idx] += amountHsk;
+      }
+
+      let maxValue = buckets.reduce((max, v) => (v > max ? v : max), 0);
+
+      // Fallback: if there is no recent-chain activity in the selected window
+      // but the titles have non-zero total revenue, render a synthetic trend
+      // using per-movie totals so the creator still sees signal.
+      if (maxValue === 0 && stats.length > 0) {
+        const fallbackBuckets = new Array(bucketCount).fill(0);
+        if (stats.length === 1) {
+          // Single title: flat line at its total revenue
+          const value = stats[0].totalRevenueHsk;
+          for (let i = 0; i < bucketCount; i++) {
+            fallbackBuckets[i] = value;
+          }
+        } else {
+          const lastIndex = bucketCount - 1;
+          stats.forEach((s, idx) => {
+            const targetIdx = Math.round((idx / (stats.length - 1)) * lastIndex);
+            fallbackBuckets[targetIdx] += s.totalRevenueHsk;
+          });
+        }
+        maxValue = fallbackBuckets.reduce((max, v) => (v > max ? v : max), 0);
+        setCreatorSeries({ buckets: fallbackBuckets, maxValue });
+      } else {
+        setCreatorSeries({ buckets, maxValue });
+      }
     } catch (e: any) {
       const msg = e.reason || e.message || String(e);
       pushLog(`❌ Analytics error: ${msg}`);
@@ -923,8 +1093,8 @@ export default function HomePage() {
     if (!account) return;
     window.localStorage.setItem(`${ROLE_STORAGE_PREFIX}${account.toLowerCase()}`, nextRole);
     setRole(nextRole);
-    setCurrentPage(nextRole === "creator" ? "creators" : "categories");
-    pushLog(`Role assigned: ${nextRole}`);
+    setCurrentPage(nextRole === "creator" ? "creator-upload" : "categories");
+    pushLog(`Role changed to: ${nextRole}`);
   }
 
   const shortAccount = account
@@ -955,8 +1125,19 @@ export default function HomePage() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
         >
-          <span className="intro-logo-main">StreamFi</span>
-          <span className="intro-logo-sub">Streaming, but on-chain.</span>
+          <div className="sidebar-logo" style={{ marginBottom: 0, transform: "scale(1.2)" }}>
+            <div className="sidebar-logo-mark" style={{ width: "4rem", height: "4rem" }}>
+              <FilmIcon className="sidebar-icon" style={{ width: "2.1rem", height: "2.1rem" }} />
+            </div>
+            <div>
+              <span
+                className="sidebar-logo-title intro-logo-title"
+                style={{ fontSize: "2.6rem" }}
+              >
+                STREAMFI
+              </span>
+            </div>
+          </div>
         </motion.div>
       </div>
     );
@@ -1005,25 +1186,128 @@ export default function HomePage() {
     return (
       <div className="gate-screen">
         <motion.div
-          className="card gate-card"
+          style={{
+            background: "rgba(15, 10, 20, 0.9)",
+            border: "1px solid rgba(124, 58, 237, 0.25)",
+            borderRadius: "28px",
+            padding: "5rem 5rem",
+            maxWidth: "650px",
+            width: "85%",
+            backdropFilter: "blur(10px)",
+          }}
           initial={{ opacity: 0, y: 30, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
         >
-          <span className="tag-pill">First-time wallet setup</span>
-          <h1 style={{ marginTop: "0.80rem", fontSize: "1.50rem", fontWeight: 700, color: "#ffffff" }}>
-            Choose your StreamFi role
-          </h1>
-          <p className="small" style={{ marginTop: "0.50rem", maxWidth: "360px", marginInline: "auto" }}>
-            We will remember this role for this wallet on future logins.
-          </p>
-          <div className="role-choice-buttons">
-            <Button className="role-choice-primary" variant="default" size="default" onClick={() => handleSelectRole("viewer")}>
-              I am a Viewer
-            </Button>
-            <Button className="role-choice-secondary" variant="outline" size="default" onClick={() => handleSelectRole("creator")}>
-              I am a Creator
-            </Button>
+          <div style={{ textAlign: "center" }}>
+            <span
+              style={{
+                display: "inline-block",
+                fontSize: "0.65rem",
+                fontWeight: 800,
+                letterSpacing: "2px",
+                color: "#9ca3af",
+                border: "1px solid rgba(124, 58, 237, 0.5)",
+                padding: "0.65rem 1.4rem",
+                borderRadius: "999px",
+                textTransform: "uppercase",
+                background: "transparent",
+                marginBottom: "3.5rem",
+              }}
+            >
+              ROLE SELECTION
+            </span>
+            
+            <h1
+              style={{
+                marginTop: "0",
+                marginBottom: "2rem",
+                fontSize: "2.8rem",
+                fontWeight: 900,
+                color: "#ffffff",
+                letterSpacing: "-1.2px",
+                lineHeight: "1.2",
+              }}
+            >
+              Choose your StreamFi role
+            </h1>
+            
+            <p
+              style={{
+                marginTop: "0",
+                marginBottom: "4.5rem",
+                fontSize: "0.95rem",
+                color: "#b4b9c4",
+                maxWidth: "450px",
+                marginLeft: "auto",
+                marginRight: "auto",
+                lineHeight: "1.8",
+                fontWeight: "400",
+              }}
+            >
+              We'll remember this role for your wallet on future logins.
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "2rem",
+              marginTop: "3rem",
+            }}
+          >
+            <button
+              onClick={() => handleSelectRole("viewer")}
+              style={{
+                padding: "1.5rem 3rem",
+                fontSize: "0.95rem",
+                fontWeight: 800,
+                letterSpacing: "1.2px",
+                border: "none",
+                borderRadius: "12px",
+                cursor: "pointer",
+                background: "#7c3aed",
+                color: "#ffffff",
+                textTransform: "uppercase",
+                transition: "all 0.2s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = "translateY(-3px)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = "translateY(0)";
+              }}
+            >
+              I'm a Viewer
+            </button>
+
+            <button
+              onClick={() => handleSelectRole("creator")}
+              style={{
+                padding: "1.5rem 3rem",
+                fontSize: "0.95rem",
+                fontWeight: 800,
+                letterSpacing: "1.2px",
+                border: "1.5px solid rgba(124, 58, 237, 0.6)",
+                borderRadius: "12px",
+                cursor: "pointer",
+                background: "transparent",
+                color: "#ffffff",
+                textTransform: "uppercase",
+                transition: "all 0.2s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(124, 58, 237, 0.12)";
+                e.currentTarget.style.borderColor = "rgba(124, 58, 237, 1)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.borderColor = "rgba(124, 58, 237, 0.6)";
+              }}
+            >
+              I'm a Creator
+            </button>
           </div>
         </motion.div>
       </div>
@@ -1148,26 +1432,30 @@ export default function HomePage() {
               placeholder="Search movies, creators, or genres..."
             />
           </div>
-          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-            <span className="wallet-chip">
-              <span className="wallet-avatar" />
-              <span style={{ display: "flex", flexDirection: "column" }}>
-                <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "#e5e7eb" }}>
-                  {account ? account.slice(0, 6) + "..." : "Guest"}
+          <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+            {account && (
+              <>
+                <span className="wallet-chip">
+                  <span className="wallet-avatar" />
+                  <span style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+                    <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#f3f4f6", letterSpacing: "0.5px" }}>
+                      {account.slice(0, 6) + "..." + account.slice(-4)}
+                    </span>
+                    <span style={{ fontSize: "0.7rem", color: "#a78bfa", fontWeight: 500 }}>
+                      {shortAccount}
+                    </span>
+                  </span>
                 </span>
-                <span style={{ fontSize: "0.65rem", color: "var(--primary)" }}>
-                  {shortAccount}
-                </span>
-              </span>
-            </span>
-            <Tag color="cyan" style={{ border: "none", background: "rgba(0, 242, 255, 0.1)", color: "var(--primary)", textTransform: "capitalize", marginInlineEnd: 0 }}>
-              {role}
-            </Tag>
-            <Tooltip title="Disconnect wallet and clear current app session">
-              <Button variant="default" size="sm" onClick={handleDisconnect}>
-                Logout
-              </Button>
-            </Tooltip>
+                <Tag color="purple" style={{ border: "1px solid rgba(167, 139, 250, 0.3)", background: "transparent", color: "#a78bfa", textTransform: "capitalize", marginInlineEnd: 0, fontWeight: 600, fontSize: "0.75rem" }}>
+                  {role}
+                </Tag>
+                <Tooltip title="Disconnect wallet and clear current app session">
+                  <Button variant="default" size="sm" onClick={handleDisconnect} style={{ fontWeight: 600, fontSize: "0.75rem" }}>
+                    LOGOUT
+                  </Button>
+                </Tooltip>
+              </>
+            )}
           </div>
         </header>
 
@@ -1199,7 +1487,7 @@ export default function HomePage() {
             {!moviesLoading && !moviesError && heroMovie && (
               <div className="hero-info">
                 <motion.div custom={0} variants={fadeUp}>
-                  <span className="tag-pill" style={{ background: "rgba(0, 242, 255, 0.2)", color: "#00f2ff", border: "none" }}>
+                  <span className="tag-pill" style={{ background: "rgba(91, 33, 182, 0.22)", color: "var(--primary)", border: "none" }}>
                     Featured Movie
                   </span>
                 </motion.div>
@@ -1419,6 +1707,7 @@ export default function HomePage() {
                       min={1}
                       value={wdMovieId}
                       onChange={(e) => setWdMovieId(e.target.value)}
+                      onFocus={() => setWithdrawStatus(null)}
                       placeholder="e.g. 1"
                       disabled={withdrawLoading}
                     />
@@ -1427,7 +1716,12 @@ export default function HomePage() {
                     variant="default"
                     size="lg"
                     type="button"
-                    onClick={handleWithdraw}
+                    onClick={() => {
+                      setPayStatus(null);
+                      setInvestStatus(null);
+                      setStreamStatus(null);
+                      handleWithdraw();
+                    }}
                     disabled={withdrawLoading || !wdMovieId}
                     style={{ width: "100%" }}
                   >
@@ -1589,17 +1883,6 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Activity Log */}
-        {logs.length > 0 && (
-          <section className="log" aria-label="Activity log">
-            {logs.map((l) => (
-              <div key={l.id} className="log-line">
-                &gt; {l.text}
-              </div>
-            ))}
-          </section>
-        )}
-
         {/* INVEST PAGE -> Invest & Earn section with functional buttons */}
         {role === "viewer" && currentPage === "invest" && (
           <div className="dashboard-root animate-fade-in">
@@ -1609,7 +1892,7 @@ export default function HomePage() {
               animate={{ opacity: 1, y: 0 }}
             >
               <span className="tag-pill mb-4" style={{ background: "rgba(139, 92, 246, 0.2)", color: "var(--primary)" }}>Invest & earnings</span>
-              <h1 className="hero-title">Viewer earnings console</h1>
+              <h1 className="hero-title">Viewer earnings</h1>
               <p className="text-dim max-w-xl">See what your sessions have generated so far, send one-off support, or experiment with the stream/settle controls below.</p>
             </motion.section>
             {movies.length === 0 ? (
@@ -1632,6 +1915,7 @@ export default function HomePage() {
                           <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", alignItems: "center" }}>
                             <div>
                               <div style={{ fontSize: "0.82rem", fontWeight: 600 }}>{bill.title}</div>
+                              <div className="small" style={{ color: "#a78bfa", fontWeight: 600, marginBottom: "4px" }}>PAYMENT ID: {bill.movieId}</div>
                               <div className="small">Movie #{bill.onChainId} · Watched: {bill.watchedSeconds}s</div>
                               <div className="small" style={{ color: "#fb923c" }}>
                                 Session tracked: {(bill.pricePerSecond * bill.watchedSeconds).toFixed(6)} HSK
@@ -1662,6 +1946,7 @@ export default function HomePage() {
                       min={1}
                       value={payMovieId}
                       onChange={(e) => setPayMovieId(e.target.value)}
+                      onFocus={() => setPayStatus(null)}
                       placeholder="1"
                       disabled={payLoading}
                     />
@@ -1670,6 +1955,7 @@ export default function HomePage() {
                       className="input"
                       value={payAmount}
                       onChange={(e) => setPayAmount(e.target.value)}
+                      onFocus={() => setPayStatus(null)}
                       placeholder="0.01"
                       disabled={payLoading}
                     />
@@ -1677,7 +1963,12 @@ export default function HomePage() {
                       variant="default"
                       size="default"
                       type="button"
-                      onClick={handlePayOnce}
+                      onClick={() => {
+                        setInvestStatus(null);
+                        setStreamStatus(null);
+                        setWithdrawStatus(null);
+                        handlePayOnce();
+                      }}
                       disabled={payLoading}
                       style={{ width: "100%", marginTop: "0.6rem" }}
                     >
@@ -1703,7 +1994,65 @@ export default function HomePage() {
                   </motion.section>
 
                   <motion.section className="console-card" custom={1} variants={fadeUp}>
-                    <div className="console-number">02 · STREAM</div>
+                    <div className="console-number">02 · INVEST</div>
+                    <h2>Invest in Movies</h2>
+                    <p className="small">Support upcoming films and earn investor share from their streaming revenue.</p>
+                    <label className="label">Movie ID</label>
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      value={invMovieId}
+                      onChange={(e) => setInvMovieId(e.target.value)}
+                      onFocus={() => setInvestStatus(null)}
+                      placeholder="e.g. 1"
+                      disabled={investLoading}
+                    />
+                    <label className="label">Amount (ETH/HSK)</label>
+                    <input
+                      className="input"
+                      value={invAmount}
+                      onChange={(e) => setInvAmount(e.target.value)}
+                      onFocus={() => setInvestStatus(null)}
+                      placeholder="0.01"
+                      disabled={investLoading}
+                    />
+                    <Button
+                      variant="default"
+                      size="default"
+                      type="button"
+                      onClick={() => {
+                        setPayStatus(null);
+                        setStreamStatus(null);
+                        setWithdrawStatus(null);
+                        handleInvest();
+                      }}
+                      disabled={investLoading}
+                      style={{ width: "100%", marginTop: "0.6rem" }}
+                    >
+                      {investLoading ? "Processing..." : "Invest now"}
+                    </Button>
+                    <StatusMessage status={investStatus} />
+                    {movies.length > 0 && (
+                      <div className="quick-pick">
+                        <span className="quick-pick-label">Quick pick:</span>
+                        {movies.slice(0, 5).map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            className="quick-pick-btn"
+                            onClick={() => setInvMovieId(String(m.onChainId))}
+                            title={m.title}
+                          >
+                            #{m.onChainId} {m.title}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </motion.section>
+
+                  <motion.section className="console-card" custom={2} variants={fadeUp}>
+                    <div className="console-number">03 · STREAM</div>
                     <h2>Streaming Mode</h2>
                     <p className="small">Start/stop stream and settle seconds to pay exact due.</p>
                     <label className="label">Movie ID (on-chain)</label>
@@ -1713,6 +2062,7 @@ export default function HomePage() {
                       min={1}
                       value={streamMovieId}
                       onChange={(e) => setStreamMovieId(e.target.value)}
+                      onFocus={() => setStreamStatus(null)}
                       placeholder="1"
                       disabled={streamLoading}
                     />
@@ -1721,7 +2071,12 @@ export default function HomePage() {
                         variant="default"
                         size="sm"
                         type="button"
-                        onClick={handleStartStream}
+                        onClick={() => {
+                          setPayStatus(null);
+                          setInvestStatus(null);
+                          setWithdrawStatus(null);
+                          handleStartStream();
+                        }}
                         disabled={streamLoading}
                       >
                         Start
@@ -1730,13 +2085,17 @@ export default function HomePage() {
                         variant="outline"
                         size="sm"
                         type="button"
-                        onClick={handleStopStream}
+                        onClick={() => {
+                          setPayStatus(null);
+                          setInvestStatus(null);
+                          setWithdrawStatus(null);
+                          handleStopStream();
+                        }}
                         disabled={streamLoading}
                       >
                         Stop
                       </Button>
                     </div>
-                    <hr className="hr" />
                     <label className="label">Settle seconds</label>
                     <input
                       className="input"
@@ -1744,6 +2103,7 @@ export default function HomePage() {
                       min={1}
                       value={settleSeconds}
                       onChange={(e) => setSettleSeconds(e.target.value)}
+                      onFocus={() => setStreamStatus(null)}
                       placeholder="e.g. 30"
                       disabled={streamLoading}
                     />
@@ -1751,7 +2111,12 @@ export default function HomePage() {
                       variant="default"
                       size="default"
                       type="button"
-                      onClick={handleSettleStream}
+                      onClick={() => {
+                        setPayStatus(null);
+                        setInvestStatus(null);
+                        setWithdrawStatus(null);
+                        handleSettleStream();
+                      }}
                       disabled={streamLoading}
                       style={{ width: "100%", marginTop: "0.6rem" }}
                     >
@@ -1777,38 +2142,31 @@ export default function HomePage() {
                   </motion.section>
                 </motion.div>
 
-                <div className="section-header" style={{ marginTop: "0.5rem" }}>
-                  <h2>Invest in Upcoming Movies</h2>
-                </div>
-                {upcomingMovies.length === 0 ? (
-                  <p className="small">No upcoming movies available for investment yet.</p>
-                ) : (
-                  <div className="invest-grid">
-                    {upcomingMovies
-                      .filter((m) => m.status !== "published" && !m.linkedMovieId)
-                      .map((m) => (
-                        <UpcomingInvestCard
-                          key={m.id}
-                          movie={m}
-                          loading={investLoading}
-                          onInvest={handleInvestUpcoming}
-                        />
-                      ))}
+                <section className="invest-section">
+                  <div className="invest-center">
+                    <h2 className="invest-heading">Invest in Upcoming Movies</h2>
+
+                    {upcomingMovies.length === 0 ? (
+                      <p className="small">No upcoming movies available for investment yet.</p>
+                    ) : (
+                      <div className="invest-grid">
+                        {upcomingMovies
+                          .filter((m) => m.status !== "published" && !m.linkedMovieId)
+                          .map((m) => (
+                            <UpcomingInvestCard
+                              key={m.id}
+                              movie={m}
+                              loading={investLoading}
+                              onInvest={handleInvestUpcoming}
+                            />
+                          ))}
+                      </div>
+                    )}
                   </div>
-                )}
+                </section>
               </div>
             )}
 
-            {/* Show activity log on invest page too */}
-            {logs.length > 0 && (
-              <section className="log" aria-label="Activity log" style={{ marginTop: "1rem" }}>
-                {logs.map((l) => (
-                  <div key={l.id} className="log-line">
-                    &gt; {l.text}
-                  </div>
-                ))}
-              </section>
-            )}
           </div>
         )}
 
@@ -1819,12 +2177,12 @@ export default function HomePage() {
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
             >
-              <span className="tag-pill mb-4" style={{ background: "rgba(0, 242, 255, 0.1)", color: "var(--primary)" }}>Live Performance</span>
+              <span className="tag-pill mb-4" style={{ background: "rgba(91, 33, 182, 0.18)", color: "var(--primary)" }}>Live Performance</span>
               <h1 className="hero-title">Creator Intelligence</h1>
               <p className="text-dim max-w-xl">Deep-dive into your content's financial performance and investor engagement across the HashKey network.</p>
 
               <div className="flex gap-4 mt-8">
-                <Button variant="default" size="sm" type="button" onClick={loadCreatorAnalytics} disabled={creatorAnalyticsLoading}>
+                <Button variant="default" size="sm" type="button" onClick={() => loadCreatorAnalytics()} disabled={creatorAnalyticsLoading}>
                   {creatorAnalyticsLoading ? "Syncing Network..." : "Force Refresh Data"}
                 </Button>
               </div>
@@ -1871,39 +2229,170 @@ export default function HomePage() {
                   </div>
                 </div>
 
+                {creatorStats.length > 0 && (
+                  <section className="analytics-section">
+                    <div className="card analytics-card">
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <div className="stat-label mb-1">Revenue over time</div>
+                          <p className="small">Live chain-settled revenue across your recent window.</p>
+                        </div>
+                        <div className="analytics-range-toggle">
+                          <button
+                            type="button"
+                            className={`analytics-range-btn ${creatorRange === "24h" ? "analytics-range-btn-active" : ""}`}
+                            onClick={() => {
+                              setCreatorRange("24h");
+                              loadCreatorAnalytics();
+                            }}
+                          >
+                            24h
+                          </button>
+                          <button
+                            type="button"
+                            className={`analytics-range-btn ${creatorRange === "7d" ? "analytics-range-btn-active" : ""}`}
+                            onClick={() => {
+                              setCreatorRange("7d");
+                              loadCreatorAnalytics();
+                            }}
+                          >
+                            7d
+                          </button>
+                          <button
+                            type="button"
+                            className={`analytics-range-btn ${creatorRange === "30d" ? "analytics-range-btn-active" : ""}`}
+                            onClick={() => {
+                              setCreatorRange("30d");
+                              loadCreatorAnalytics();
+                            }}
+                          >
+                            30d
+                          </button>
+                        </div>
+                      </div>
+                      <div className="analytics-chart" aria-label="Hour versus revenue line chart">
+                        <svg className="analytics-line-chart" viewBox="0 0 100 100" preserveAspectRatio="none">
+                          <defs>
+                            <linearGradient id="analyticsLineGradient" x1="0" y1="0" x2="1" y2="0">
+                              <stop offset="0%" stopColor="#a855f7" />
+                              <stop offset="100%" stopColor="#22d3ee" />
+                            </linearGradient>
+                            <linearGradient id="analyticsAreaGradient" x1="0" y1="1" x2="0" y2="0">
+                              <stop offset="0%" stopColor="rgba(15,23,42,0.1)" />
+                              <stop offset="100%" stopColor="rgba(168,85,247,0.25)" />
+                            </linearGradient>
+                          </defs>
+                          {creatorAreaPoints && (
+                            <polygon
+                              className="analytics-area"
+                              points={creatorAreaPoints}
+                            />
+                          )}
+                          <polyline
+                            className="analytics-line-path"
+                            points={creatorLinePoints}
+                            stroke="url(#analyticsLineGradient)"
+                          />
+                          {creatorSeries.buckets.map((value, index) => {
+                            if (!creatorLinePoints) return null;
+                            const segments = creatorLinePoints.split(" ");
+                            const [xStr, yStr] = segments[Math.min(index, segments.length - 1)].split(",");
+                            const cx = parseFloat(xStr || "0");
+                            const cy = parseFloat(yStr || "0");
+                            return (
+                              <circle
+                                key={`bucket-${index}`}
+                                className="analytics-point"
+                                cx={cx}
+                                cy={cy}
+                                r={1.4}
+                              />
+                            );
+                          })}
+                        </svg>
+                        <div className="analytics-y-axis">
+                          <span>{creatorSeries.maxValue.toFixed(3)}</span>
+                          <span>{(creatorSeries.maxValue / 2 || 0).toFixed(3)}</span>
+                          <span>0.000</span>
+                        </div>
+                        <div className="analytics-axis-labels">
+                          <span>{creatorRange === "24h" ? "24h ago" : creatorRange === "7d" ? "7d ago" : "30d ago"}</span>
+                          <span>Now</span>
+                        </div>
+                      </div>
+                      {/* Legend removed as per UI request */}
+                    </div>
+
+                    <div className="card analytics-side">
+                      <div className="stat-label mb-3">Earnings vs Investments</div>
+                      <p className="small mb-4">Breakdown of total revenue flows across creator, investors and the remaining pool.</p>
+                      <div className="analytics-breakdown">
+                        <div className="analytics-breakdown-row">
+                          <span>Creator earnings</span>
+                          <span>
+                            {creatorStats
+                              .reduce((acc, s) => acc + s.creatorEarningHsk, 0)
+                              .toFixed(4)}
+                            <span className="analytics-unit"> HSK</span>
+                          </span>
+                        </div>
+                        <div className="analytics-breakdown-row">
+                          <span>Investor pool</span>
+                          <span>
+                            {creatorStats
+                              .reduce((acc, s) => acc + s.investorPoolHsk, 0)
+                              .toFixed(4)}
+                            <span className="analytics-unit"> HSK</span>
+                          </span>
+                        </div>
+                        <div className="analytics-breakdown-row">
+                          <span>Total network revenue</span>
+                          <span>
+                            {creatorStats
+                              .reduce((acc, s) => acc + s.totalRevenueHsk, 0)
+                              .toFixed(4)}
+                            <span className="analytics-unit"> HSK</span>
+                          </span>
+                        </div>
+                      </div>
+                      <p className="analytics-footnote">
+                        Figures update from chain reads; use “Force Refresh Data” to sync the latest blocks.
+                      </p>
+                    </div>
+                  </section>
+                )}
+
                 <h2 className="dashboard-section-title" style={{ marginTop: "2.5rem" }}>
                   Content Portfolio Performance
                 </h2>
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                   {creatorStats.map((s) => (
                     <motion.div key={s.movieId} initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
-                      <Card className="card p-8 border-white/5 hover:border-[var(--primary)]/30 transition-all duration-500">
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-                          <div>
-                            <div className="text-2xl font-black uppercase tracking-tighter text-white">{s.title}</div>
-                            <div className="text-[10px] font-bold text-[var(--primary)] uppercase tracking-widest mt-1">NETWORK ID: #{s.onChainId}</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="stat-label">Total Revenue</div>
-                            <div className="text-3xl font-black text-white">{s.totalRevenueHsk.toFixed(4)} <span className="text-sm font-medium text-slate-500">HSK</span></div>
+                      <div className="card portfolio-card p-8 transition-all duration-500">
+                        <div className="portfolio-header">
+                          <div className="portfolio-title">{s.title}</div>
+                          <div className="portfolio-sub">NETWORK ID: #{s.onChainId}</div>
+                          <div className="portfolio-revenue-row">
+                            <span className="portfolio-revenue-label">TOTAL REVENUE</span>
+                            <span className="portfolio-revenue-value">{s.totalRevenueHsk.toFixed(4)} HSK</span>
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-8 pt-7 border-t border-white/5">
-                          <div className="stat-item" style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
-                            <div className="stat-label">Your Share (60%)</div>
-                            <div className="text-xl font-bold text-emerald-400">{s.creatorEarningHsk.toFixed(6)}</div>
+                        <div className="portfolio-metrics">
+                          <div className="portfolio-metric">
+                            <div className="stat-label">Your share (60%)</div>
+                            <div className="portfolio-metric-value text-emerald-400">{s.creatorEarningHsk.toFixed(6)} HSK</div>
                           </div>
-                          <div className="stat-item" style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
-                            <div className="stat-label">Investor Pool (30%)</div>
-                            <div className="text-xl font-bold text-blue-400">{s.investorPoolHsk.toFixed(6)}</div>
+                          <div className="portfolio-metric">
+                            <div className="stat-label">Investor pool (30%)</div>
+                            <div className="portfolio-metric-value text-blue-400">{s.investorPoolHsk.toFixed(6)} HSK</div>
                           </div>
-                          <div className="stat-item" style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
-                            <div className="stat-label">Shares Issued</div>
-                            <div className="text-xl font-bold text-slate-200">{(Number(s.totalSharesWei) / 1e18).toFixed(2)}</div>
+                          <div className="portfolio-metric">
+                            <div className="stat-label">Shares issued</div>
+                            <div className="portfolio-metric-value text-slate-200">{(Number(s.totalSharesWei) / 1e18).toFixed(2)}</div>
                           </div>
                         </div>
-                      </Card>
+                      </div>
                     </motion.div>
                   ))}
                 </div>
@@ -1915,94 +2404,63 @@ export default function HomePage() {
         <AnimatePresence>
           {selectedHomeMovie && (
             <motion.div
-              style={{
-                position: "fixed",
-                inset: 0,
-                zIndex: 200,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: "1rem",
-              }}
+              className="movie-modal-overlay"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
             >
               <button
                 type="button"
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  background: "rgba(0,0,0,0.75)",
-                  border: "none",
-                }}
+                className="movie-modal-backdrop"
                 aria-label="Close details"
                 onClick={() => setSelectedHomeMovie(null)}
               />
 
               <motion.div
-                className="card"
-                style={{
-                  position: "relative",
-                  width: "100%",
-                  maxWidth: 720,
-                  overflow: "hidden",
-                  padding: 0,
-                  background: "#110c1c",
-                }}
-                initial={{ opacity: 0, scale: 0.92, y: 30 }}
+                className="movie-modal-card"
+                initial={{ opacity: 0, scale: 0.95, y: 40 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                transition={{ duration: 0.22 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                transition={{ type: "spring", stiffness: 300, damping: 25 }}
               >
                 <div
+                  className="movie-modal-cover"
                   style={{
-                    height: 260,
-                    width: "100%",
-                    backgroundSize: "cover",
-                    backgroundPosition: "center",
-                    backgroundImage: selectedHomeMovie.thumbnailUrl
-                      ? `linear-gradient(180deg, rgba(10,10,12,0.15), rgba(10,10,12,0.95)), url(${selectedHomeMovie.thumbnailUrl})`
-                      : "var(--accent-gradient)",
+                    backgroundImage: `linear-gradient(to top, #110d18 0%, transparent 80%), url(${selectedHomeMovie.thumbnailUrl})`,
                   }}
                 />
 
-                <div style={{ padding: "1.25rem 1.5rem 1.6rem" }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "1rem" }}>
-                    <div>
-                      <div className="movie-badge" style={{ fontSize: "1.35rem", lineHeight: 1.1 }}>
-                        {selectedHomeMovie.title}
-                      </div>
-                      <div className="small" style={{ marginTop: "0.25rem" }}>
-                        {selectedHomeMovie.genre} · {Math.round(selectedHomeMovie.duration)} min
-                      </div>
-                    </div>
+                <div className="movie-modal-body">
+                  <div className="movie-modal-header-row">
+                    <h3 className="movie-modal-title">{selectedHomeMovie.title}</h3>
                     <button
                       type="button"
-                      className="button"
-                      style={{ marginTop: 0, padding: "0.5rem 1rem" }}
+                      className="movie-modal-close-pill"
                       onClick={() => setSelectedHomeMovie(null)}
                     >
-                      Close
+                      CLOSE
                     </button>
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", marginTop: "1rem" }}>
-                    <div className="small" style={{ opacity: 0.85 }}>
+                  <div className="movie-modal-subtitle">
+                    {selectedHomeMovie.genre} · {Math.round(selectedHomeMovie.duration)} min
+                  </div>
+
+                  <div className="movie-modal-meta-row">
+                    <span className="movie-modal-creator">
                       Creator: {selectedHomeMovie.creatorWallet.slice(0, 6)}...{selectedHomeMovie.creatorWallet.slice(-4)}
-                    </div>
-                    <div className="small" style={{ color: "var(--primary)", fontWeight: 700 }}>
+                    </span>
+                    <span className="movie-modal-price">
                       Price: {selectedHomeMovie.pricePerSecond} HSK/sec
-                    </div>
+                    </span>
                   </div>
 
                   <button
                     type="button"
-                    className="button"
-                    style={{ width: "100%" }}
+                    className="movie-modal-play-btn"
                     onClick={() => router.push(`/watch/${selectedHomeMovie.id}`)}
                   >
-                    Play Movie
+                    PLAY MOVIE
                   </button>
                 </div>
               </motion.div>
@@ -2015,209 +2473,4 @@ export default function HomePage() {
   );
 }
 
-/* ─── Invest Card sub-component ─── */
-function InvestCard({
-  movie,
-  loading,
-  onInvest,
-}: {
-  movie: Movie;
-  loading: boolean;
-  onInvest: (movie: Movie, amount: string) => void;
-}) {
-  const [amount, setAmount] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
-
-  const handleClick = async () => {
-    setStatus("⏳ Sending...");
-    try {
-      await onInvest(movie, amount);
-      setStatus("✅ Investment sent!");
-      setAmount("");
-    } catch {
-      setStatus("❌ Failed");
-    }
-  };
-
-  return (
-    <Card className="card">
-      <div className="invest-title-row">
-        <div
-          className="invest-poster"
-          style={
-            movie.thumbnailUrl
-              ? {
-                backgroundImage: `url(${movie.thumbnailUrl})`,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-              }
-              : undefined
-          }
-        />
-        <div>
-          <div style={{ fontSize: "0.9rem", fontWeight: 600 }}>{movie.title}</div>
-          <div className="small">
-            {movie.genre} · {Math.round(movie.duration)} min
-          </div>
-          <div className="small" style={{ color: "#f97316", fontWeight: 500 }}>
-            On-chain ID: #{movie.onChainId}
-          </div>
-        </div>
-      </div>
-      <div style={{ marginTop: "0.7rem", fontSize: "0.7rem", color: "#9ca3af" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.25rem" }}>
-          <span>Price/sec</span>
-          <span style={{ color: "#fdba74" }}>{movie.pricePerSecond} HSK</span>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <span>Revenue split</span>
-          <span>60/30/10</span>
-        </div>
-      </div>
-      <div style={{ marginTop: "0.6rem" }}>
-        <input
-          className="input !py-1 text-sm"
-          type="text"
-          placeholder="Investment Amount (HSK)"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-        />
-      </div>
-      <Button
-        variant="default"
-        size="default"
-        type="button"
-        style={{ width: "100%", marginTop: "0.5rem" }}
-        disabled={loading || !amount}
-        onClick={handleClick}
-      >
-        {loading ? "Processing..." : "Invest Now"}
-      </Button>
-      {status && (
-        <p
-          className="small"
-          style={{
-            marginTop: "0.25rem",
-            color: status.startsWith("✅") ? "#4ade80" : status.startsWith("❌") ? "#f87171" : "#fdba74",
-          }}
-        >
-          {status}
-        </p>
-      )}
-    </Card>
-  );
-}
-
-function UpcomingInvestCard({
-  movie,
-  loading,
-  onInvest,
-}: {
-  movie: UpcomingMovie;
-  loading: boolean;
-  onInvest: (movie: UpcomingMovie, amount: string) => void;
-}) {
-  const [amount, setAmount] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
-  const isPublished = movie.status === "published" || Boolean(movie.linkedMovieId);
-  const canInvestOnChain = Boolean(movie.onChainReady && movie.onChainId && movie.onChainId > 0);
-
-  const handleClick = async () => {
-    if (isPublished) {
-      setStatus("❌ This upcoming movie is already published");
-      return;
-    }
-    if (!canInvestOnChain) {
-      setStatus("❌ On-chain ID not ready yet");
-      return;
-    }
-    setStatus("⏳ Sending...");
-    try {
-      await onInvest(movie, amount);
-      setStatus("✅ On-chain investment sent and recorded!");
-      setAmount("");
-    } catch (e: any) {
-      setStatus(`❌ ${e?.message || "Failed"}`);
-    }
-  };
-
-  const progressPercent = Math.min(100, (Number(movie.pledgedTotalHsk || 0) / Number(movie.targetAmountHsk || 1)) * 100);
-
-  return (
-    <Card className="card p-5 border-white/5 hover:border-[var(--primary)]/30 transition-all duration-500 overflow-hidden group">
-      <div className="relative mb-5 landscape-img overflow-hidden rounded-xl">
-        {movie.thumbnailUrl ? (
-          <img
-            src={movie.thumbnailUrl}
-            alt={movie.title}
-            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-          />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center text-3xl">🎬</div>
-        )}
-        <div className="absolute top-2 left-2">
-          <span className={`text-[9px] font-black px-2 py-1 rounded bg-black/60 backdrop-blur-md uppercase tracking-widest ${canInvestOnChain ? 'text-emerald-400' : 'text-amber-400'}`}>
-            {canInvestOnChain ? 'LIVE ON CHAIN' : 'PRE-RELEASE'}
-          </span>
-        </div>
-      </div>
-
-      <div className="text-lg font-bold text-white mb-1 truncate">{movie.title}</div>
-      <div className="text-[10px] font-bold text-[var(--primary)] uppercase tracking-widest mb-4">
-        {movie.genre} · CREATOR: {movie.creatorWallet.slice(0, 4)}...{movie.creatorWallet.slice(-4)}
-      </div>
-
-      <p className="text-xs text-slate-400 line-clamp-2 h-8 mb-4">{movie.description}</p>
-
-      <div className="p-4 rounded-xl bg-white/5 border border-white/5 mt-2 mb-6">
-        <div className="flex justify-between items-end mb-2">
-          <div className="stat-label mb-0">Fundraising</div>
-          <div className="text-xs font-bold text-white">{progressPercent.toFixed(1)}%</div>
-        </div>
-        <div className="h-1 rounded-full bg-white/5 overflow-hidden">
-          <div
-            className="h-full bg-[var(--primary)]"
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-        <div className="flex justify-between mt-3 text-[10px] font-bold">
-          <span className="text-slate-500">PLEDGED: {Number(movie.pledgedTotalHsk || 0).toFixed(2)} HSK</span>
-          <span className="text-white">GOAL: {movie.targetAmountHsk}</span>
-        </div>
-      </div>
-
-      <div className="space-y-3 mt-6">
-        <input
-          className="input invest-input text-sm"
-          type="text"
-          placeholder="Investment Amount (HSK)"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          disabled={isPublished || !canInvestOnChain}
-        />
-        <Button
-          variant={isPublished || !canInvestOnChain ? "outline" : "default"}
-          size="default"
-          type="button"
-          className="w-full font-bold uppercase tracking-widest text-[11px] invest-cta"
-          disabled={loading || !amount || isPublished || !canInvestOnChain}
-          onClick={handleClick}
-        >
-          {isPublished
-            ? "Published"
-            : !canInvestOnChain
-              ? "Awaiting Chain Sync"
-              : loading
-                ? "Processing..."
-                : "Confirm Investment"}
-        </Button>
-      </div>
-
-      {status && (
-        <p className={`mt-3 text-[10px] font-bold text-center ${status.startsWith("✅") ? 'text-emerald-400' : 'text-red-400'}`}>
-          {status}
-        </p>
-      )}
-    </Card>
-  );
-}
+/* Invest card components moved to frontend/components/InvestCards.tsx */

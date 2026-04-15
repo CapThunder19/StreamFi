@@ -73,6 +73,9 @@ export default function MovieGrid() {
           <div className="movie-info">
             <span className="movie-title">{m.genre}</span>
             <span className="movie-badge">{m.title}</span>
+            <div className="movie-sub" style={{ fontSize: "0.7rem", fontWeight: 600, color: "#a78bfa", marginBottom: "4px" }}>
+              ID: {m.id}
+            </div>
             <div className="movie-sub">
               {Math.round(m.duration)} min · 💰 {m.pricePerSecond.toFixed?.(2) ?? m.pricePerSecond} HSK/s
             </div>
@@ -83,69 +86,69 @@ export default function MovieGrid() {
       <AnimatePresence>
         {selectedMovie && (
           <motion.div
-            className="fixed inset-0 z-[200] flex items-center justify-center p-6"
+            className="movie-modal-overlay"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
             <button
               type="button"
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              className="movie-modal-backdrop"
               aria-label="Close details"
               onClick={() => setSelectedMovie(null)}
             />
 
             <motion.div
-              className="relative w-full max-w-4xl overflow-hidden rounded-[2rem] border border-white/10 bg-[#0a0a0a]/90 shadow-2xl backdrop-blur-2xl"
+              className="movie-modal-card"
               initial={{ opacity: 0, scale: 0.95, y: 40 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               transition={{ type: "spring", stiffness: 300, damping: 25 }}
             >
               <div
-                className="h-80 w-full bg-cover bg-center relative"
+                className="movie-modal-cover"
                 style={{
-                  backgroundImage: `linear-gradient(to top, #0a0a0a 0%, transparent 60%), url(${selectedMovie.thumbnailUrl})`,
+                  backgroundImage: `linear-gradient(to top, #110d18 0%, transparent 80%), url(${selectedMovie.thumbnailUrl})`,
                 }}
-              >
-                <button
-                  type="button"
-                  className="absolute top-6 right-6 h-10 w-10 flex items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md border border-white/10 hover:bg-white/10 transition-colors"
-                  onClick={() => setSelectedMovie(null)}
-                >
-                  ✕
-                </button>
-              </div>
+              />
 
-              <div className="space-y-6 p-10">
-                <div className="flex items-start justify-between gap-6">
-                  <div>
-                    <h3 className="text-3xl font-extrabold text-white mb-2">{selectedMovie.title}</h3>
-                    <div className="flex items-center gap-3">
-                      <span className="tag-pill" style={{ background: "var(--primary)", color: "#000", border: "none" }}>{selectedMovie.genre}</span>
-                      <span className="text-slate-400 font-medium">·</span>
-                      <span className="text-slate-400 font-medium">{Math.round(selectedMovie.duration)} Minutes</span>
-                      <span className="text-slate-400 font-medium">·</span>
-                      <span className="text-[var(--primary)] font-bold">💰 {selectedMovie.pricePerSecond} HSK/s</span>
-                    </div>
-                  </div>
-                </div>
-
-                <p className="text-lg leading-relaxed text-slate-300 max-w-2xl">{selectedMovie.description}</p>
-
-                <div className="flex items-center gap-6 pt-4">
+              <div className="movie-modal-body">
+                <div className="movie-modal-header-row">
+                  <h3 className="movie-modal-title">{selectedMovie.title}</h3>
                   <button
                     type="button"
-                    className="button px-8 py-3 text-lg"
-                    onClick={() => router.push(`/watch/${selectedMovie.id}`)}
+                    className="movie-modal-close-pill"
+                    onClick={() => setSelectedMovie(null)}
                   >
-                    Watch Now
+                    CLOSE
                   </button>
-                  <div className="text-sm text-slate-500">
-                    <p>On-chain streaming secured by StreamFi</p>
-                    <p>Creator: {selectedMovie.creatorWallet.slice(0, 10)}...</p>
-                  </div>
                 </div>
+
+                <div className="movie-modal-subtitle">
+                  {selectedMovie.genre} · {Math.round(selectedMovie.duration)} min
+                </div>
+
+                <div className="movie-modal-meta-row">
+                  <span style={{ fontSize: "0.85rem", color: "#a78bfa", fontWeight: 600 }}>
+                    PAYMENT ID: {selectedMovie.id}
+                  </span>
+                </div>
+                <div className="movie-modal-meta-row">
+                  <span className="movie-modal-creator">
+                    Creator: {selectedMovie.creatorWallet.slice(0, 6)}...{selectedMovie.creatorWallet.slice(-4)}
+                  </span>
+                  <span className="movie-modal-price">
+                    Price: {selectedMovie.pricePerSecond} HSK/sec
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  className="movie-modal-play-btn"
+                  onClick={() => router.push(`/watch/${selectedMovie.id}`)}
+                >
+                  PLAY MOVIE
+                </button>
               </div>
             </motion.div>
           </motion.div>

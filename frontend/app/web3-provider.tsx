@@ -51,7 +51,7 @@ export default function Web3Provider({ children }: { children: React.ReactNode }
           theme={{
             algorithm: antdTheme.darkAlgorithm,
             token: {
-              colorPrimary: "#00f2ff",
+              colorPrimary: "#5b21b6",
               borderRadius: 12,
               colorBgBase: "#050505",
             },
@@ -60,7 +60,7 @@ export default function Web3Provider({ children }: { children: React.ReactNode }
           <ChakraProvider value={chakraSystem}>
             <RainbowKitProvider
               theme={darkTheme({
-                accentColor: "#00f2ff",
+                accentColor: "#5b21b6",
                 accentColorForeground: "#000000",
                 borderRadius: "large",
                 fontStack: "system",
